@@ -4,7 +4,7 @@ import { Canvas } from './Canvas';
 import { Toolbar } from './Toolbar';
 
 export function Board() {
-  const { canvasRef, setTool, setBrushSize } = useCanvas();
+  const { canvasRef, setTool, setBrushSize, setColor, currentColor } = useCanvas();
   const [currentTool, setCurrentTool] = useState<Tool>('pen');
   const [brushSize, setBrushSizeState] = useState(3);
 
@@ -18,6 +18,10 @@ export function Board() {
     setBrushSize(size);
   };
 
+  const handleColorChange = (color: string) => {
+    setColor(color);
+  };
+
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
       <Toolbar
@@ -25,6 +29,8 @@ export function Board() {
         onToolChange={handleToolChange}
         brushSize={brushSize}
         onBrushSizeChange={handleBrushSizeChange}
+        currentColor={currentColor}
+        onColorChange={handleColorChange}
       />
       <Canvas canvasRef={canvasRef} />
     </div>

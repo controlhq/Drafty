@@ -1,4 +1,4 @@
-import { useEffect, useRef, RefObject, MutableRefObject } from 'react';
+import { useEffect, useRef, RefObject, MutableRefObject, useState } from 'react';
 import { fabric } from 'fabric';
 
 export type Tool = 'pen' | 'eraser';
@@ -9,12 +9,15 @@ export interface UseCanvasReturn {
   isApplyingRemote: MutableRefObject<boolean>;
   setTool: (tool: Tool) => void;
   setBrushSize: (size: number) => void;
+  setColor: (color: string) => void;
+  currentColor: string;
 }
 
 export function useCanvas(): UseCanvasReturn {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvas = useRef<fabric.Canvas | null>(null);
   const isApplyingRemote = useRef(false);
+  const [currentColor, setCurrentColorState] = useState('#000000');
 
   const updateCursor = (size: number) => {
     if (!canvas.current) return;
@@ -31,7 +34,7 @@ export function useCanvas(): UseCanvasReturn {
   const setTool = (tool: Tool) => {
     if (!canvas.current) return;
     if (tool === 'pen') {
-      canvas.current.freeDrawingBrush.color = '#000000';
+      canvas.current.freeDrawingBrush.color = currentColor;
     } else if (tool === 'eraser') {
       canvas.current.freeDrawingBrush.color = '#ffffff';
     }
@@ -41,6 +44,14 @@ export function useCanvas(): UseCanvasReturn {
     if (!canvas.current) return;
     canvas.current.freeDrawingBrush.width = size;
     updateCursor(size);
+  };
+
+  const setColor = (color: string) => {
+    setCurrentColorState(color);
+    if (!canvas.current) return;
+    if (canvas.current.freeDrawingBrush) {
+      canvas.current.freeDrawingBrush.color = color;
+    }
   };
 
   useEffect(() => {
@@ -77,5 +88,5 @@ export function useCanvas(): UseCanvasReturn {
     };
   }, []);
 
-  return { canvasRef, canvas, isApplyingRemote, setTool, setBrushSize };
+  return { canvasRef, canvas, isApplyingRemote, setTool, setBrushSize, setColor, currentColor };
 }
