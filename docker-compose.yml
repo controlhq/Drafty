@@ -10,3 +10,14 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=development
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: drafty_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./database/migrations:/docker-entrypoint-initdb.d
