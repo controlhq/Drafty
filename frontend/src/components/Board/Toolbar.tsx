@@ -13,7 +13,17 @@ interface ToolbarProps {
   username: string;
 }
 
-export function Toolbar({ currentTool, onToolChange, brushSize, onBrushSizeChange, currentColor, onColorChange }: ToolbarProps) {
+export function Toolbar({
+  currentTool,
+  onToolChange,
+  brushSize,
+  onBrushSizeChange,
+  currentColor,
+  onColorChange,
+  onClear,
+  connected,
+  username,
+}: ToolbarProps) {
   return (
     <div
       style={{
@@ -30,6 +40,7 @@ export function Toolbar({ currentTool, onToolChange, brushSize, onBrushSizeChang
         zIndex: 10,
       }}
     >
+      {/* Tools */}
       <button
         onClick={() => onToolChange('pen')}
         style={{
@@ -44,6 +55,7 @@ export function Toolbar({ currentTool, onToolChange, brushSize, onBrushSizeChang
       >
         🖊️ Ołówek
       </button>
+
       <button
         onClick={() => onToolChange('eraser')}
         style={{
@@ -58,6 +70,8 @@ export function Toolbar({ currentTool, onToolChange, brushSize, onBrushSizeChang
       >
         🧽 Gumka
       </button>
+
+      {/* Brush size */}
       <label style={{ marginRight: '8px', fontSize: '14px' }}>Rozmiar:</label>
       <input
         type="range"
@@ -68,6 +82,8 @@ export function Toolbar({ currentTool, onToolChange, brushSize, onBrushSizeChang
         style={{ marginRight: '8px' }}
       />
       <span style={{ fontSize: '14px' }}>{brushSize}px</span>
+
+      {/* Colors */}
       <div style={{ marginLeft: '16px', display: 'flex', alignItems: 'center' }}>
         <label style={{ marginRight: '8px', fontSize: '14px' }}>Kolor:</label>
         {['#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'].map((color) => (
@@ -86,6 +102,27 @@ export function Toolbar({ currentTool, onToolChange, brushSize, onBrushSizeChang
             title={color}
           />
         ))}
+      </div>
+
+      {/* Clear button */}
+      <button
+        onClick={onClear}
+        style={{
+          marginLeft: '16px',
+          padding: '8px 16px',
+          backgroundColor: '#ef4444',
+          color: '#ffffff',
+          border: 'none',
+          borderRadius: '4px',
+          cursor: 'pointer',
+        }}
+      >
+        🗑️ Wyczyść
+      </button>
+
+      {/* Status */}
+      <div style={{ marginLeft: 'auto', fontSize: '14px', color: '#374151' }}>
+        {connected ? '🟢 Połączono' : '🔴 Brak połączenia'} | {username}
       </div>
     </div>
   );
