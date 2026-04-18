@@ -181,7 +181,7 @@ export function useCanvas(options: UseCanvasOptions = {}): UseCanvasReturn {
     // Po zakończeniu rysowania ścieżki — wyślij do serwera
     fabricCanvas.on('path:created', (e) => {
       if (isApplyingRemote.current) return;
-      const path = e.path as fabric.Path & { customId?: string };
+      const path = (e as any).path as fabric.Path & { customId?: string };
       const objectId = uuidv4();
       path.customId = objectId;
       path.selectable = false;
