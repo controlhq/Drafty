@@ -7,6 +7,10 @@ interface ToolbarProps {
   onBrushSizeChange: (size: number) => void;
   currentColor: string;
   onColorChange: (color: string) => void;
+
+  onClear: () => void;
+  connected: boolean;
+  username: string;
 }
 
 export function Toolbar({ currentTool, onToolChange, brushSize, onBrushSizeChange, currentColor, onColorChange }: ToolbarProps) {
