@@ -1,4 +1,15 @@
 services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./frontend
@@ -10,6 +21,8 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=development
+    depends_on:
+      - backend
 
   db:
     image: postgres:15-alpine
