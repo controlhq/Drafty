@@ -33,7 +33,7 @@ export function Board() {
   };
 
   // Socket callbacks
-  const handleSessionJoined = useCallback(({ user, users: sessionUsers, canvasObjects }: {
+  const handleSessionJoined = useCallback(({ user: _user, users: sessionUsers, canvasObjects }: {
     user: UserInfo;
     users: UserInfo[];
     canvasObjects: Record<string, object>;
