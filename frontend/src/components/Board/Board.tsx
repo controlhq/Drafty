@@ -1,11 +1,37 @@
-import { useCanvas } from '../../hooks/useCanvas';
+import { useState } from 'react';
+import { useCanvas, Tool } from '../../hooks/useCanvas';
 import { Canvas } from './Canvas';
+import { Toolbar } from './Toolbar';
 
 export function Board() {
-  const { canvasRef } = useCanvas();
+  const { canvasRef, setTool, setBrushSize, setColor, currentColor } = useCanvas();
+  const [currentTool, setCurrentTool] = useState<Tool>('pen');
+  const [brushSize, setBrushSizeState] = useState(3);
+
+  const handleToolChange = (tool: Tool) => {
+    setCurrentTool(tool);
+    setTool(tool);
+  };
+
+  const handleBrushSizeChange = (size: number) => {
+    setBrushSizeState(size);
+    setBrushSize(size);
+  };
+
+  const handleColorChange = (color: string) => {
+    setColor(color);
+  };
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
+      <Toolbar
+        currentTool={currentTool}
+        onToolChange={handleToolChange}
+        brushSize={brushSize}
+        onBrushSizeChange={handleBrushSizeChange}
+        currentColor={currentColor}
+        onColorChange={handleColorChange}
+      />
       <Canvas canvasRef={canvasRef} />
     </div>
   );
