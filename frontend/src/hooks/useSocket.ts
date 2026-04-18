@@ -1,6 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
+console.log("🔥 useSocket mounted");
+
 const SOCKET_URL = "https://drafty-20pq.onrender.com";
 
 export interface UserInfo {
