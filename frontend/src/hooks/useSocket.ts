@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = 'https://drafty-20pq.onrender.com';
+const SOCKET_URL = "https://drafty-20pq.onrender.com";
 
 export interface UserInfo {
     socketId: string;
