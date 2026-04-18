@@ -42,9 +42,7 @@ export function useSocket(options: UseSocketOptions) {
     optionsRef.current = options;
 
     useEffect(() => {
-        const socket = io(SOCKET_URL, {
-  transports: ['polling', 'websocket'],
-});
+        const socket = io(SOCKET_URL);
         socketRef.current = socket;
 
         socket.on('connect', () => {
