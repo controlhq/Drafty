@@ -18,10 +18,11 @@ export function useCanvas(options: any = {}) {
   const canvas = useRef<fabric.Canvas | null>(null);
   const isApplyingRemote = useRef(false);
   
-  // Główny magazyn danych stron
-  const pagesRef = useRef<PageInfo[]>([{ id: uuidv4(), name: 'Page 1', objects: {} }]);
+  // --- GŁÓWNY MAGAZYN DANYCH ---
+  // Używamy Ref, aby dane były dostępne natychmiastowo dla mechanizmów Fabric i Socketów
+  const pagesRef = useRef<PageInfo[]>([{ id: uuidv4(), name: 'Strona 1', objects: {} }]);
   
-  // Stany dla Reacta (do renderowania UI)
+  // Stany Reacta do odświeżania komponentów UI (Toolbar, Listy stron)
   const [pages, setPagesState] = useState<PageInfo[]>(pagesRef.current);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [currentColor, setCurrentColorState] = useState('#000000');
@@ -29,13 +30,14 @@ export function useCanvas(options: any = {}) {
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  // Używamy refa do śledzenia aktualnego indeksu wewnątrz callbacków Fabric.js
+  // Ref do śledzenia indeksu wewnątrz callbacków Fabric (omijamy closure problem)
   const currentPageIndexRef = useRef(0);
   useEffect(() => {
     currentPageIndexRef.current = currentPageIndex;
   }, [currentPageIndex]);
 
-  // Funkcja pobierająca obiekty z aktualnego stanu płótna
+  // --- LOGIKA WEWNĘTRZNA ---
+
   const getCanvasData = useCallback(() => {
     if (!canvas.current) return {};
     const data: Record<string, any> = {};
@@ -47,7 +49,6 @@ export function useCanvas(options: any = {}) {
     return data;
   }, []);
 
-  // Funkcja ładująca obiekty na płótno
   const loadDataToCanvas = useCallback((data: Record<string, any>) => {
     if (!canvas.current) return;
     const c = canvas.current;
@@ -75,7 +76,8 @@ export function useCanvas(options: any = {}) {
     });
   }, []);
 
-  // Inicjalizacja Fabric.js (tylko raz przy montowaniu hooka)
+  // --- INICJALIZACJA PŁÓTNA ---
+
   useEffect(() => {
     if (!canvasRef.current || canvas.current) return;
 
@@ -99,7 +101,7 @@ export function useCanvas(options: any = {}) {
       optionsRef.current.onObjectAdded?.(activePageId, id, e.path.toJSON([CUSTOM_ID_KEY]));
     });
 
-    // Załaduj pierwszą stronę
+    // Wczytaj stan początkowy
     loadDataToCanvas(pagesRef.current[0].objects);
 
     return () => {
@@ -113,22 +115,27 @@ export function useCanvas(options: any = {}) {
   const switchToPage = useCallback((newIndex: number) => {
     if (!canvas.current || newIndex === currentPageIndex) return;
 
-    // 1. Zapisz obecną stronę przed zmianą
+    // 1. Zapisz stan obecnej strony
     pagesRef.current[currentPageIndex].objects = getCanvasData();
 
-    // 2. Zmień indeks i załaduj dane
+    // 2. Przełącz indeks
     setCurrentPageIndex(newIndex);
-    loadDataToCanvas(pagesRef.current[newIndex].objects || {});
+    
+    // 3. Załaduj dane nowej strony
+    const nextData = pagesRef.current[newIndex].objects || {};
+    loadDataToCanvas(nextData);
   }, [currentPageIndex, getCanvasData, loadDataToCanvas]);
 
   const addPage = useCallback(() => {
-    // Zapisz aktualną
     pagesRef.current[currentPageIndex].objects = getCanvasData();
 
-    // Dodaj nową
-    const newPage = { id: uuidv4(), name: `Page ${pagesRef.current.length + 1}`, objects: {} };
-    pagesRef.current.push(newPage);
+    const newPage: PageInfo = { 
+      id: uuidv4(), 
+      name: `Strona ${pagesRef.current.length + 1}`, 
+      objects: {} 
+    };
     
+    pagesRef.current.push(newPage);
     setPagesState([...pagesRef.current]);
     switchToPage(pagesRef.current.length - 1);
   }, [currentPageIndex, getCanvasData, switchToPage]);
@@ -148,7 +155,13 @@ export function useCanvas(options: any = {}) {
     loadDataToCanvas(pagesRef.current[nextIndex].objects || {});
   }, [currentPageIndex, loadDataToCanvas]);
 
-  // --- OBSŁUGA ZDALNA (SOCKETS) ---
+  const renamePage = useCallback((index: number, newName: string) => {
+    if (!newName.trim()) return;
+    pagesRef.current[index].name = newName;
+    setPagesState([...pagesRef.current]);
+  }, []);
+
+  // --- OBSŁUGA ZDARZEŃ ZDALNYCH (SOCKETS) ---
 
   const applyRemoteObject = useCallback((pageId: string, objectId: string, fabricJSON: any) => {
     const page = pagesRef.current.find(p => p.id === pageId);
@@ -156,7 +169,7 @@ export function useCanvas(options: any = {}) {
       page.objects[objectId] = fabricJSON;
     }
 
-    // Jeśli zmiana dotyczy aktualnie wyświetlanej strony, dorysuj ją natychmiast
+    // Jeśli to aktualna strona, renderujemy "na żywo"
     if (pageId === pagesRef.current[currentPageIndexRef.current].id && canvas.current) {
       isApplyingRemote.current = true;
       fabric.util.enlivenObjects([fabricJSON], (enlivened: fabric.Object[]) => {
@@ -178,7 +191,7 @@ export function useCanvas(options: any = {}) {
     }
 
     if (pageId === pagesRef.current[currentPageIndexRef.current].id && canvas.current) {
-      const obj = canvas.current.getObjects().find((o: any) => (o as any).customId === objectId);
+      const obj = canvas.current.getObjects().find((o: any) => o.customId === objectId);
       if (obj) {
         canvas.current.remove(obj);
         canvas.current.renderAll();
@@ -194,6 +207,8 @@ export function useCanvas(options: any = {}) {
       canvas.current?.clear().setBackgroundColor('#ffffff').renderAll();
     }
   }, []);
+
+  // --- EKSPORT METOD ---
 
   return {
     canvasRef,
@@ -219,15 +234,15 @@ export function useCanvas(options: any = {}) {
     addPage,
     switchToPage,
     deletePage,
+    renamePage,
     applyRemoteObject,
     removeRemoteObject,
     clearPageObjects,
     getCurrentPageId: () => pagesRef.current[currentPageIndex].id,
     loadCanvasState: (allState: any) => {
-      // Formatuje stan otrzymany z serwera
       const serverPages = Object.keys(allState).map((pid, idx) => ({
         id: pid,
-        name: `Page ${idx + 1}`,
+        name: `Strona ${idx + 1}`,
         objects: allState[pid]
       }));
 

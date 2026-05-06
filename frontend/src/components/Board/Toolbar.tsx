@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { Tool } from '../../hooks/useCanvas';
 import { PageInfo } from '../../types';
 
@@ -11,12 +12,13 @@ interface ToolbarProps {
   onClear: () => void;
   connected: boolean;
   username: string;
-  // Page management
+  // Zarządzanie stronami
   pages: PageInfo[];
   currentPageIndex: number;
   onAddPage: () => void;
   onSwitchToPage: (pageIndex: number) => void;
   onDeletePage: (pageIndex: number) => void;
+  onRenamePage: (pageIndex: number, newName: string) => void;
 }
 
 export function Toolbar({
@@ -33,8 +35,41 @@ export function Toolbar({
   currentPageIndex,
   onAddPage,
   onSwitchToPage,
-  onDeletePage
+  onDeletePage,
+  onRenamePage,
 }: ToolbarProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempName, setTempName] = useState('');
+
+  // Synchronizacja lokalnego pola tekstowego z danymi z hooka
+  useEffect(() => {
+    if (pages[currentPageIndex]) {
+      setTempName(pages[currentPageIndex].name);
+    }
+  }, [currentPageIndex, pages]);
+
+  const handleRenameSubmit = () => {
+    const trimmedName = tempName.trim();
+    if (trimmedName && trimmedName !== pages[currentPageIndex].name) {
+      onRenamePage(currentPageIndex, trimmedName);
+    } else {
+      // Jeśli nazwa jest pusta, przywróć poprzednią
+      setTempName(pages[currentPageIndex].name);
+    }
+    setIsEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleRenameSubmit();
+    }
+    if (e.key === 'Escape') {
+      setTempName(pages[currentPageIndex].name);
+      setIsEditing(false);
+    }
+  };
+
   return (
     <div
       style={{
@@ -42,192 +77,230 @@ export function Toolbar({
         top: 0,
         left: 0,
         right: 0,
-        height: '50px',
-        backgroundColor: '#f3f4f6',
-        borderBottom: '1px solid #d1d5db',
+        height: '55px',
+        backgroundColor: '#ffffff',
+        borderBottom: '1px solid #e5e7eb',
         display: 'flex',
         alignItems: 'center',
-        padding: '0 16px',
-        zIndex: 10,
+        padding: '0 20px',
+        zIndex: 100,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
       }}
     >
-      <button
-        onClick={() => onToolChange('pen')}
-        style={{
-          padding: '8px 16px',
-          marginRight: '8px',
-          backgroundColor: currentTool === 'pen' ? '#3b82f6' : '#ffffff',
-          color: currentTool === 'pen' ? '#ffffff' : '#000000',
-          border: '1px solid #d1d5db',
-          borderRadius: '4px',
-          cursor: 'pointer',
-        }}
-      >
-        🖊️ Ołówek
-      </button>
-      <button
-        onClick={() => onToolChange('eraser')}
-        style={{
-          padding: '8px 16px',
-          marginRight: '16px',
-          backgroundColor: currentTool === 'eraser' ? '#3b82f6' : '#ffffff',
-          color: currentTool === 'eraser' ? '#ffffff' : '#000000',
-          border: '1px solid #d1d5db',
-          borderRadius: '4px',
-          cursor: 'pointer',
-        }}
-      >
-        🧽 Gumka
-      </button>
-      <label style={{ marginRight: '8px', fontSize: '14px' }}>Rozmiar:</label>
-      <input
-        type="range"
-        min="1"
-        max="50"
-        value={brushSize}
-        onChange={(e) => onBrushSizeChange(Number(e.target.value))}
-        style={{ marginRight: '8px' }}
-      />
-      <span style={{ fontSize: '14px' }}>{brushSize}px</span>
-      <div style={{ marginLeft: '16px', display: 'flex', alignItems: 'center' }}>
-        <label style={{ marginRight: '8px', fontSize: '14px' }}>Kolor:</label>
-        {['#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'].map((color) => (
+      {/* Narzędzia rysowania */}
+      <div style={{ display: 'flex', gap: '4px', marginRight: '20px' }}>
+        <button
+          onClick={() => onToolChange('pen')}
+          style={{
+            padding: '8px 12px',
+            backgroundColor: currentTool === 'pen' ? '#eff6ff' : 'transparent',
+            color: currentTool === 'pen' ? '#2563eb' : '#4b5563',
+            border: currentTool === 'pen' ? '1px solid #bfdbfe' : '1px solid transparent',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontWeight: 500,
+          }}
+        >
+          🖊️ Pisak
+        </button>
+        <button
+          onClick={() => onToolChange('eraser')}
+          style={{
+            padding: '8px 12px',
+            backgroundColor: currentTool === 'eraser' ? '#eff6ff' : 'transparent',
+            color: currentTool === 'eraser' ? '#2563eb' : '#4b5563',
+            border: currentTool === 'eraser' ? '1px solid #bfdbfe' : '1px solid transparent',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontWeight: 500,
+          }}
+        >
+          🧽 Gumka
+        </button>
+      </div>
+
+      <div style={{ height: '24px', width: '1px', backgroundColor: '#e5e7eb', marginRight: '20px' }} />
+
+      {/* Rozmiar pędzla */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '20px' }}>
+        <input
+          type="range"
+          min="1"
+          max="40"
+          value={brushSize}
+          onChange={(e) => onBrushSizeChange(Number(e.target.value))}
+          style={{ cursor: 'pointer', width: '100px' }}
+        />
+        <span style={{ fontSize: '13px', color: '#6b7280', width: '30px' }}>{brushSize}px</span>
+      </div>
+
+      {/* Kolory */}
+      <div style={{ display: 'flex', gap: '6px', marginRight: '20px' }}>
+        {['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b'].map((color) => (
           <button
             key={color}
             onClick={() => onColorChange(color)}
             style={{
-              width: '24px',
-              height: '24px',
+              width: '22px',
+              height: '22px',
               backgroundColor: color,
-              border: currentColor === color ? '2px solid #000000' : '1px solid #d1d5db',
-              borderRadius: '4px',
-              marginRight: '4px',
+              border: currentColor === color ? '2px solid #ffffff' : '1px solid rgba(0,0,0,0.1)',
+              outline: currentColor === color ? '2px solid #3b82f6' : 'none',
+              borderRadius: '50%',
               cursor: 'pointer',
+              transition: 'transform 0.1s',
             }}
-            title={color}
           />
         ))}
       </div>
 
-      {/* Page controls */}
-      <div style={{ marginLeft: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+      {/* Zarządzanie stronami - Wyśrodkowane */}
+      <div style={{ marginLeft: 'auto', marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <button
+          onClick={() => onSwitchToPage(Math.max(0, currentPageIndex - 1))}
+          disabled={currentPageIndex === 0}
+          style={{
+            padding: '5px 10px',
+            background: 'none',
+            border: 'none',
+            cursor: currentPageIndex === 0 ? 'default' : 'pointer',
+            opacity: currentPageIndex === 0 ? 0.2 : 0.6,
+            fontSize: '18px',
+          }}
+        >
+          ‹
+        </button>
+
+        <div 
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            backgroundColor: '#f3f4f6', 
+            padding: '4px 4px 4px 12px', 
+            borderRadius: '8px',
+            minWidth: '140px',
+            justifyContent: 'space-between'
+          }}
+        >
+          {isEditing ? (
+            <input
+              autoFocus
+              value={tempName}
+              onChange={(e) => setTempName(e.target.value)}
+              onBlur={handleRenameSubmit}
+              onKeyDown={handleKeyDown}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                border: 'none',
+                background: '#ffffff',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                fontSize: '14px',
+                fontWeight: 600,
+                width: '100px',
+                outline: '2px solid #3b82f6',
+              }}
+            />
+          ) : (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsEditing(true);
+              }}
+              style={{
+                fontSize: '14px',
+                fontWeight: 600,
+                color: '#1f2937',
+                cursor: 'pointer',
+                flexGrow: 1,
+                textAlign: 'center',
+                marginRight: '8px'
+              }}
+            >
+              {pages[currentPageIndex]?.name || 'Strona'}
+            </span>
+          )}
+          
+          {pages.length > 1 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeletePage(currentPageIndex);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#9ca3af',
+                cursor: 'pointer',
+                padding: '4px 8px',
+                fontSize: '12px',
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        <button
+          onClick={() => onSwitchToPage(Math.min(pages.length - 1, currentPageIndex + 1))}
+          disabled={currentPageIndex === pages.length - 1}
+          style={{
+            padding: '5px 10px',
+            background: 'none',
+            border: 'none',
+            cursor: currentPageIndex === pages.length - 1 ? 'default' : 'pointer',
+            opacity: currentPageIndex === pages.length - 1 ? 0.2 : 0.6,
+            fontSize: '18px',
+          }}
+        >
+          ›
+        </button>
+
         <button
           onClick={onAddPage}
           style={{
-            padding: '8px 12px',
+            padding: '6px 12px',
             backgroundColor: '#10b981',
             color: '#ffffff',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
+            border: 'none',
+            borderRadius: '6px',
             cursor: 'pointer',
-            fontSize: '14px',
+            fontSize: '13px',
+            fontWeight: 500,
           }}
-          title="Add new page"
         >
-          ➕ Page
+          + Nowa
         </button>
-
-        {/* Page navigation */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <button
-            onClick={() => onSwitchToPage(Math.max(0, currentPageIndex - 1))}
-            disabled={currentPageIndex === 0}
-            style={{
-              padding: '6px 8px',
-              backgroundColor: currentPageIndex === 0 ? '#f3f4f6' : '#ffffff',
-              color: currentPageIndex === 0 ? '#9ca3af' : '#000000',
-              border: '1px solid #d1d5db',
-              borderRadius: '4px',
-              cursor: currentPageIndex === 0 ? 'not-allowed' : 'pointer',
-              fontSize: '14px',
-            }}
-            title="Previous page"
-          >
-            ←
-          </button>
-
-          <span style={{
-            padding: '6px 12px',
-            backgroundColor: '#f3f4f6',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-            fontSize: '14px',
-            minWidth: '80px',
-            textAlign: 'center',
-          }}>
-            {pages[currentPageIndex]?.name || 'Page 1'}
-          </span>
-
-          <button
-            onClick={() => onSwitchToPage(Math.min(pages.length - 1, currentPageIndex + 1))}
-            disabled={currentPageIndex === pages.length - 1}
-            style={{
-              padding: '6px 8px',
-              backgroundColor: currentPageIndex === pages.length - 1 ? '#f3f4f6' : '#ffffff',
-              color: currentPageIndex === pages.length - 1 ? '#9ca3af' : '#000000',
-              border: '1px solid #d1d5db',
-              borderRadius: '4px',
-              cursor: currentPageIndex === pages.length - 1 ? 'not-allowed' : 'pointer',
-              fontSize: '14px',
-            }}
-            title="Next page"
-          >
-            →
-          </button>
-        </div>
-
-        {pages.length > 1 && (
-          <button
-            onClick={() => onDeletePage(currentPageIndex)}
-            style={{
-              padding: '8px 12px',
-              backgroundColor: '#ef4444',
-              color: '#ffffff',
-              border: '1px solid #d1d5db',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '14px',
-            }}
-            title="Delete current page"
-          >
-            🗑️ Delete
-          </button>
-        )}
       </div>
 
-      {/* Clear button */}
-      <button
-        onClick={onClear}
-        style={{
-          marginLeft: '16px',
-          padding: '8px 16px',
-          backgroundColor: '#ef4444',
-          color: '#ffffff',
-          border: '1px solid #d1d5db',
-          borderRadius: '4px',
-          cursor: 'pointer',
-        }}
-        title="Clear current page"
-      >
-        🗑️ Wyczyść
-      </button>
-
-      {/* Connection status */}
-      <div style={{ marginLeft: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <div
+      {/* Prawa strona: Czyszczenie i Status */}
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '15px' }}>
+        <button
+          onClick={onClear}
           style={{
-            width: '12px',
-            height: '12px',
-            borderRadius: '50%',
-            backgroundColor: connected ? '#10b981' : '#ef4444',
+            padding: '8px 14px',
+            backgroundColor: 'transparent',
+            color: '#ef4444',
+            border: '1px solid #fecaca',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '13px',
           }}
-        />
-        <span style={{ fontSize: '14px', color: connected ? '#10b981' : '#ef4444' }}>
-          {connected ? 'Połączony' : 'Rozłączony'}
-        </span>
-        <span style={{ fontSize: '14px', color: '#6b7280' }}>
-          {username}
-        </span>
+        >
+          Wyczyść
+        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderLeft: '1px solid #e5e7eb', paddingLeft: '15px' }}>
+          <div
+            style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              backgroundColor: connected ? '#10b981' : '#ef4444',
+            }}
+          />
+          <span style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>{username}</span>
+        </div>
       </div>
     </div>
   );

@@ -32,7 +32,7 @@ export function Board() {
   };
 
   // --- SOCKET CALLBACKS ---
-  const handleSessionJoined = useCallback(({ user, users: sessionUsers, canvasObjects }: {
+  const handleSessionJoined = useCallback(({ users: sessionUsers, canvasObjects }: {
     user: UserInfo;
     users: UserInfo[];
     canvasObjects: Record<string, Record<string, object>>;
@@ -78,7 +78,7 @@ export function Board() {
   }, []);
 
   // --- HOOKS ---
-  const { emitObjectAdded, emitObjectModified, emitObjectRemoved, emitClear, emitCursorMove } = useSocket({
+  const { emitObjectAdded, emitObjectModified, emitClear, emitCursorMove } = useSocket({
     sessionId: sessionId!,
     username,
     onSessionJoined: handleSessionJoined,
@@ -99,12 +99,11 @@ export function Board() {
     onCursorMove: (pageId, x, y) => emitCursorMove(pageId, x, y),
   });
 
-  // --- SYNCHRONIZACJA METOD ---
+  // --- SYNCHRONIZACJA METOD ZDALNYCH ---
   useEffect(() => {
-    const h = canvasHook as any;
-    applyRemoteRef.current = h.applyRemoteObject;
-    removeRemoteRef.current = h.removeRemoteObject;
-  }, [canvasHook]);
+    applyRemoteRef.current = canvasHook.applyRemoteObject;
+    removeRemoteRef.current = canvasHook.removeRemoteObject;
+  }, [canvasHook.applyRemoteObject, canvasHook.removeRemoteObject]);
 
   // --- HANDLERY UI ---
   const handleToolChange = (tool: Tool) => {
@@ -140,11 +139,13 @@ export function Board() {
         onClear={handleClearCanvas}
         connected={connected}
         username={username}
+        // Page management
         pages={canvasHook.pages}
         currentPageIndex={canvasHook.currentPageIndex}
         onAddPage={canvasHook.addPage}
         onSwitchToPage={canvasHook.switchToPage}
         onDeletePage={canvasHook.deletePage}
+        onRenamePage={canvasHook.renamePage} // <--- TO ZOSTAŁO DODANE
       />
 
       {/* Płótno (Wycentrowane) */}
@@ -153,10 +154,10 @@ export function Board() {
         justifyContent: 'center', 
         alignItems: 'center', 
         height: '100%', 
-        paddingTop: '60px', // Miejsce na toolbar
+        paddingTop: '60px', 
         overflow: 'auto' 
       }}>
-        <div style={{ boxShadow: '0 0 40px rgba(0,0,0,0.1)', background: 'white' }}>
+        <div style={{ boxShadow: '0 10px 30px rgba(0,0,0,0.1)', background: 'white' }}>
           <Canvas canvasRef={canvasHook.canvasRef} />
         </div>
       </div>
