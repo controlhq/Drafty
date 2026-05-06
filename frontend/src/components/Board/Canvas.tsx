@@ -1,20 +1,12 @@
-import { RefObject } from 'react';
+import React from 'react';
 import { A4_WIDTH, A4_HEIGHT } from '../../hooks/useCanvas';
 
 interface CanvasProps {
-  canvasRef: RefObject<HTMLCanvasElement>;
+  canvasRef: React.RefObject<HTMLCanvasElement>;
 }
 
-export function Canvas({ canvasRef }: CanvasProps) {
-  // Calculate scale to fit A4 in viewport while maintaining aspect ratio
-  const scale = Math.min(
-    (window.innerWidth * 0.8) / A4_WIDTH,
-    (window.innerHeight * 0.8) / A4_HEIGHT
-  );
-
-  const scaledWidth = A4_WIDTH * scale;
-  const scaledHeight = A4_HEIGHT * scale;
-
+// Używamy React.memo, aby zapobiec zbędnym re-renderom przy ruchach myszki/zmianach UI
+export const Canvas = React.memo(({ canvasRef }: CanvasProps) => {
   return (
     <div
       style={{
@@ -24,28 +16,34 @@ export function Canvas({ canvasRef }: CanvasProps) {
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#f5f5f5',
-        paddingTop: '50px', // Account for toolbar
+        overflow: 'auto', // Pozwala przewijać, jeśli A4 się nie mieści
+        padding: '80px 20px 20px 20px', 
       }}
     >
       <div
         style={{
-          width: scaledWidth,
-          height: scaledHeight,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-          border: '1px solid #e0e0e0',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+          border: '1px solid #d1d5db',
           backgroundColor: '#ffffff',
-          position: 'relative',
+          lineHeight: 0, // Usuwa dziwne odstępy pod canvasem
         }}
       >
         <canvas
           ref={canvasRef}
+          // WAŻNE: Wymiary muszą być stałe, Fabric sam zajmie się resztą
+          width={A4_WIDTH}
+          height={A4_HEIGHT}
           style={{
-            width: '100%',
-            height: '100%',
             display: 'block',
+            // Jeśli chcesz, aby płótno zawsze mieściło się w ekranie:
+            maxWidth: '90vw',
+            maxHeight: '85vh',
+            objectFit: 'contain',
           }}
         />
       </div>
     </div>
   );
-}
+});
+
+Canvas.displayName = 'Canvas';

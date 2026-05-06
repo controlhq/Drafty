@@ -14,6 +14,7 @@ export function Board() {
   const navigate = useNavigate();
   const username = searchParams.get('username') || 'Anonim';
 
+  // --- STANY UI ---
   const [currentTool, setCurrentTool] = useState<Tool>('pen');
   const [brushSize, setBrushSizeState] = useState(3);
   const [users, setUsers] = useState<UserInfo[]>([]);
@@ -21,18 +22,16 @@ export function Board() {
   const [connected, setConnected] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
-  // Referencje do metod canvas (dostępne po mount)
-  const applyRemoteRef = useRef<((id: string, obj: object) => void) | null>(null);
-  const removeRemoteRef = useRef<((id: string) => void) | null>(null);
-  const loadStateRef = useRef<((objs: Record<string, object>) => void) | null>(null);
-  const clearCanvasRef = useRef<(() => void) | null>(null);
+  // --- REFERENCJE DO METOD ZDALNYCH ---
+  const applyRemoteRef = useRef<((pageId: string, id: string, obj: object) => void) | null>(null);
+  const removeRemoteRef = useRef<((pageId: string, id: string) => void) | null>(null);
 
   const showNotification = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Socket callbacks
+  // --- SOCKET CALLBACKS ---
   const handleSessionJoined = useCallback(({ user, users: sessionUsers, canvasObjects }: {
     user: UserInfo;
     users: UserInfo[];
@@ -40,7 +39,8 @@ export function Board() {
   }) => {
     setConnected(true);
     setUsers(sessionUsers);
-    loadStateRef.current?.(canvasObjects);
+    // Ładowanie początkowego stanu tablicy (wszystkich stron) z serwera
+    canvasHook.loadCanvasState(canvasObjects);
   }, []);
 
   const handleObjectAdded = useCallback((pageId: string, objectId: string, fabricObject: object) => {
@@ -53,10 +53,6 @@ export function Board() {
 
   const handleObjectRemoved = useCallback((pageId: string, objectId: string) => {
     removeRemoteRef.current?.(pageId, objectId);
-  }, []);
-
-  const handleCanvasClear = useCallback(() => {
-    clearCanvasRef.current?.();
   }, []);
 
   const handleCursorMove = useCallback((pageId: string, cursor: { x: number; y: number; socketId: string }) => {
@@ -81,6 +77,7 @@ export function Board() {
     showNotification(`${uname} opuścił tablicę`);
   }, []);
 
+  // --- HOOKS ---
   const { emitObjectAdded, emitObjectModified, emitObjectRemoved, emitClear, emitCursorMove } = useSocket({
     sessionId: sessionId!,
     username,
@@ -89,9 +86,7 @@ export function Board() {
     onObjectModified: handleObjectModified,
     onObjectRemoved: handleObjectRemoved,
     onCanvasClear: (pageId) => {
-      if (pageId === canvasHook.getCurrentPageId()) {
-        canvasHook.clearCanvas();
-      }
+      canvasHook.clearPageObjects(pageId);
     },
     onCursorMove: handleCursorMove,
     onUserJoined: handleUserJoined,
@@ -104,19 +99,14 @@ export function Board() {
     onCursorMove: (pageId, x, y) => emitCursorMove(pageId, x, y),
   });
 
-  // Podpnij referencje do metod canvas
+  // --- SYNCHRONIZACJA METOD ---
   useEffect(() => {
-    const h = canvasHook as typeof canvasHook & {
-      applyRemoteObject: (pageId: string, id: string, obj: object) => void;
-      removeRemoteObject: (pageId: string, id: string) => void;
-      loadCanvasState: (objs: Record<string, object>) => void;
-    };
+    const h = canvasHook as any;
     applyRemoteRef.current = h.applyRemoteObject;
     removeRemoteRef.current = h.removeRemoteObject;
-    loadStateRef.current = h.loadCanvasState;
-    clearCanvasRef.current = canvasHook.clearCanvas;
   }, [canvasHook]);
 
+  // --- HANDLERY UI ---
   const handleToolChange = (tool: Tool) => {
     setCurrentTool(tool);
     canvasHook.setTool(tool);
@@ -138,58 +128,65 @@ export function Board() {
   }
 
   return (
-      <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-        {/* Toolbar */}
-        <Toolbar
-            currentTool={currentTool}
-            onToolChange={handleToolChange}
-            brushSize={brushSize}
-            onBrushSizeChange={handleBrushSizeChange}
-            currentColor={canvasHook.currentColor}
-            onColorChange={canvasHook.setColor}
-            onClear={handleClearCanvas}
-            connected={connected}
-            username={username}
-            pages={canvasHook.pages}
-            currentPageIndex={canvasHook.currentPageIndex}
-            onAddPage={canvasHook.addPage}
-            onSwitchToPage={canvasHook.switchToPage}
-            onDeletePage={canvasHook.deletePage}
-        />
+    <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden', background: '#f3f4f6' }}>
+      {/* Pasek narzędzi */}
+      <Toolbar
+        currentTool={currentTool}
+        onToolChange={handleToolChange}
+        brushSize={brushSize}
+        onBrushSizeChange={handleBrushSizeChange}
+        currentColor={canvasHook.currentColor}
+        onColorChange={canvasHook.setColor}
+        onClear={handleClearCanvas}
+        connected={connected}
+        username={username}
+        pages={canvasHook.pages}
+        currentPageIndex={canvasHook.currentPageIndex}
+        onAddPage={canvasHook.addPage}
+        onSwitchToPage={canvasHook.switchToPage}
+        onDeletePage={canvasHook.deletePage}
+      />
 
-        {/* Canvas */}
-        <Canvas canvasRef={canvasHook.canvasRef} />
-
-        {/* Kursory innych użytkowników */}
-        <CursorOverlay cursors={Object.values(remoteCursors)} currentPageId={canvasHook.getCurrentPageId()} />
-
-        {/* Panel użytkowników (prawy górny róg) */}
-        <UsersPanel users={users} currentUsername={username} />
-
-        {/* Share panel */}
-        <SharePanel sessionId={sessionId} />
-
-        {/* Powiadomienie */}
-        {notification && (
-            <div style={{
-              position: 'fixed',
-              bottom: '24px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              background: 'rgba(30,27,75,0.95)',
-              color: '#ffffff',
-              padding: '10px 20px',
-              borderRadius: '100px',
-              fontSize: '14px',
-              fontWeight: 500,
-              border: '1px solid rgba(99,102,241,0.4)',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-              zIndex: 1000,
-              pointerEvents: 'none',
-            }}>
-              {notification}
-            </div>
-        )}
+      {/* Płótno (Wycentrowane) */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100%', 
+        paddingTop: '60px', // Miejsce na toolbar
+        overflow: 'auto' 
+      }}>
+        <div style={{ boxShadow: '0 0 40px rgba(0,0,0,0.1)', background: 'white' }}>
+          <Canvas canvasRef={canvasHook.canvasRef} />
+        </div>
       </div>
+
+      {/* Nakładki UI */}
+      <CursorOverlay cursors={Object.values(remoteCursors)} currentPageId={canvasHook.getCurrentPageId()} />
+      <UsersPanel users={users} currentUsername={username} />
+      <SharePanel sessionId={sessionId} />
+
+      {/* System powiadomień */}
+      {notification && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(30,27,75,0.95)',
+          color: '#ffffff',
+          padding: '10px 20px',
+          borderRadius: '100px',
+          fontSize: '14px',
+          fontWeight: 500,
+          border: '1px solid rgba(99,102,241,0.4)',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+          zIndex: 1000,
+          pointerEvents: 'none',
+        }}>
+          {notification}
+        </div>
+      )}
+    </div>
   );
 }
