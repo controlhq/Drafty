@@ -15,6 +15,7 @@ export interface RemoteCursor {
     cursorColor: string;
     x: number;
     y: number;
+    pageId: string;
 }
 
 export interface SessionJoinedPayload {
@@ -27,10 +28,10 @@ interface UseSocketOptions {
     sessionId: string;
     username: string;
     onSessionJoined: (payload: SessionJoinedPayload) => void;
-    onObjectAdded: (objectId: string, fabricObject: object) => void;
-    onObjectModified: (objectId: string, fabricObject: object) => void;
-    onObjectRemoved: (objectId: string) => void;
-    onCanvasClear: () => void;
+    onObjectAdded: (pageId: string, objectId: string, fabricObject: object) => void;
+    onObjectModified: (pageId: string, objectId: string, fabricObject: object) => void;
+    onObjectRemoved: (pageId: string, objectId: string) => void;
+    onCanvasClear: (pageId: string) => void;
     onCursorMove: (cursor: RemoteCursor) => void;
     onUserJoined: (user: UserInfo) => void;
     onUserLeft: (socketId: string, username: string) => void;
@@ -56,20 +57,20 @@ export function useSocket(options: UseSocketOptions) {
             optionsRef.current.onSessionJoined(payload);
         });
 
-        socket.on('canvas:object-added', ({ objectId, fabricObject }: { objectId: string; fabricObject: object }) => {
-            optionsRef.current.onObjectAdded(objectId, fabricObject);
+        socket.on('canvas:object-added', ({ pageId, objectId, fabricObject }: { pageId: string; objectId: string; fabricObject: object }) => {
+            optionsRef.current.onObjectAdded(pageId, objectId, fabricObject);
         });
 
-        socket.on('canvas:object-modified', ({ objectId, fabricObject }: { objectId: string; fabricObject: object }) => {
-            optionsRef.current.onObjectModified(objectId, fabricObject);
+        socket.on('canvas:object-modified', ({ pageId, objectId, fabricObject }: { pageId: string; objectId: string; fabricObject: object }) => {
+            optionsRef.current.onObjectModified(pageId, objectId, fabricObject);
         });
 
-        socket.on('canvas:object-removed', ({ objectId }: { objectId: string }) => {
-            optionsRef.current.onObjectRemoved(objectId);
+        socket.on('canvas:object-removed', ({ pageId, objectId }: { pageId: string; objectId: string }) => {
+            optionsRef.current.onObjectRemoved(pageId, objectId);
         });
 
-        socket.on('canvas:clear', () => {
-            optionsRef.current.onCanvasClear();
+        socket.on('canvas:clear', ({ pageId }: { pageId: string }) => {
+            optionsRef.current.onCanvasClear(pageId);
         });
 
         socket.on('cursor:move', (cursor: RemoteCursor) => {
@@ -89,24 +90,24 @@ export function useSocket(options: UseSocketOptions) {
         };
     }, [options.sessionId, options.username]);
 
-    const emitObjectAdded = useCallback((objectId: string, fabricObject: object) => {
-        socketRef.current?.emit('canvas:object-added', { objectId, fabricObject });
+    const emitObjectAdded = useCallback((pageId: string, objectId: string, fabricObject: object) => {
+        socketRef.current?.emit('canvas:object-added', { pageId, objectId, fabricObject });
     }, []);
 
-    const emitObjectModified = useCallback((objectId: string, fabricObject: object) => {
-        socketRef.current?.emit('canvas:object-modified', { objectId, fabricObject });
+    const emitObjectModified = useCallback((pageId: string, objectId: string, fabricObject: object) => {
+        socketRef.current?.emit('canvas:object-modified', { pageId, objectId, fabricObject });
     }, []);
 
-    const emitObjectRemoved = useCallback((objectId: string) => {
-        socketRef.current?.emit('canvas:object-removed', { objectId });
+    const emitObjectRemoved = useCallback((pageId: string, objectId: string) => {
+        socketRef.current?.emit('canvas:object-removed', { pageId, objectId });
     }, []);
 
-    const emitClear = useCallback(() => {
-        socketRef.current?.emit('canvas:clear');
+    const emitClear = useCallback((pageId: string) => {
+        socketRef.current?.emit('canvas:clear', { pageId });
     }, []);
 
-    const emitCursorMove = useCallback((x: number, y: number) => {
-        socketRef.current?.emit('cursor:move', { x, y });
+    const emitCursorMove = useCallback((pageId: string, x: number, y: number) => {
+        socketRef.current?.emit('cursor:move', { pageId, x, y });
     }, []);
 
     return {

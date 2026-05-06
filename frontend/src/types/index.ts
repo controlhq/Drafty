@@ -5,6 +5,7 @@ export interface CanvasEvent {
   type: CanvasEventType;
   objectId: string;
   payload: object;
+  pageId: string;
 }
 
 export interface CursorPosition {
@@ -12,9 +13,16 @@ export interface CursorPosition {
   userId: string;
   x: number;
   y: number;
+  pageId: string;
 }
 
 export interface SessionInfo {
   id: string;
   createdAt: string;
+}
+
+export interface PageInfo {
+  id: string;
+  name: string;
+  objects: Record<string, object>;
 }

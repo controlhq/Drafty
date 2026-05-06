@@ -1,4 +1,5 @@
 import { Tool } from '../../hooks/useCanvas';
+import { PageInfo } from '../../types';
 
 interface ToolbarProps {
   currentTool: Tool;
@@ -7,9 +8,33 @@ interface ToolbarProps {
   onBrushSizeChange: (size: number) => void;
   currentColor: string;
   onColorChange: (color: string) => void;
+  onClear: () => void;
+  connected: boolean;
+  username: string;
+  // Page management
+  pages: PageInfo[];
+  currentPageIndex: number;
+  onAddPage: () => void;
+  onSwitchToPage: (pageIndex: number) => void;
+  onDeletePage: (pageIndex: number) => void;
 }
 
-export function Toolbar({ currentTool, onToolChange, brushSize, onBrushSizeChange, currentColor, onColorChange }: ToolbarProps) {
+export function Toolbar({
+  currentTool,
+  onToolChange,
+  brushSize,
+  onBrushSizeChange,
+  currentColor,
+  onColorChange,
+  onClear,
+  connected,
+  username,
+  pages,
+  currentPageIndex,
+  onAddPage,
+  onSwitchToPage,
+  onDeletePage
+}: ToolbarProps) {
   return (
     <div
       style={{
@@ -82,6 +107,127 @@ export function Toolbar({ currentTool, onToolChange, brushSize, onBrushSizeChang
             title={color}
           />
         ))}
+      </div>
+
+      {/* Page controls */}
+      <div style={{ marginLeft: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button
+          onClick={onAddPage}
+          style={{
+            padding: '8px 12px',
+            backgroundColor: '#10b981',
+            color: '#ffffff',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '14px',
+          }}
+          title="Add new page"
+        >
+          ➕ Page
+        </button>
+
+        {/* Page navigation */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button
+            onClick={() => onSwitchToPage(Math.max(0, currentPageIndex - 1))}
+            disabled={currentPageIndex === 0}
+            style={{
+              padding: '6px 8px',
+              backgroundColor: currentPageIndex === 0 ? '#f3f4f6' : '#ffffff',
+              color: currentPageIndex === 0 ? '#9ca3af' : '#000000',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              cursor: currentPageIndex === 0 ? 'not-allowed' : 'pointer',
+              fontSize: '14px',
+            }}
+            title="Previous page"
+          >
+            ←
+          </button>
+
+          <span style={{
+            padding: '6px 12px',
+            backgroundColor: '#f3f4f6',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            fontSize: '14px',
+            minWidth: '80px',
+            textAlign: 'center',
+          }}>
+            {pages[currentPageIndex]?.name || 'Page 1'}
+          </span>
+
+          <button
+            onClick={() => onSwitchToPage(Math.min(pages.length - 1, currentPageIndex + 1))}
+            disabled={currentPageIndex === pages.length - 1}
+            style={{
+              padding: '6px 8px',
+              backgroundColor: currentPageIndex === pages.length - 1 ? '#f3f4f6' : '#ffffff',
+              color: currentPageIndex === pages.length - 1 ? '#9ca3af' : '#000000',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              cursor: currentPageIndex === pages.length - 1 ? 'not-allowed' : 'pointer',
+              fontSize: '14px',
+            }}
+            title="Next page"
+          >
+            →
+          </button>
+        </div>
+
+        {pages.length > 1 && (
+          <button
+            onClick={() => onDeletePage(currentPageIndex)}
+            style={{
+              padding: '8px 12px',
+              backgroundColor: '#ef4444',
+              color: '#ffffff',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+            title="Delete current page"
+          >
+            🗑️ Delete
+          </button>
+        )}
+      </div>
+
+      {/* Clear button */}
+      <button
+        onClick={onClear}
+        style={{
+          marginLeft: '16px',
+          padding: '8px 16px',
+          backgroundColor: '#ef4444',
+          color: '#ffffff',
+          border: '1px solid #d1d5db',
+          borderRadius: '4px',
+          cursor: 'pointer',
+        }}
+        title="Clear current page"
+      >
+        🗑️ Wyczyść
+      </button>
+
+      {/* Connection status */}
+      <div style={{ marginLeft: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div
+          style={{
+            width: '12px',
+            height: '12px',
+            borderRadius: '50%',
+            backgroundColor: connected ? '#10b981' : '#ef4444',
+          }}
+        />
+        <span style={{ fontSize: '14px', color: connected ? '#10b981' : '#ef4444' }}>
+          {connected ? 'Połączony' : 'Rozłączony'}
+        </span>
+        <span style={{ fontSize: '14px', color: '#6b7280' }}>
+          {username}
+        </span>
       </div>
     </div>
   );

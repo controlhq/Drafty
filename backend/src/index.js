@@ -16,15 +16,15 @@ const io = new Server(server, {
     },
 });
 
-// Mapa sesji: sessionId -> { users: Map<socketId, userInfo>, canvasState: [] }
+// Mapa sesji: sessionId -> { users: Map<socketId, userInfo>, canvasState: { pageId: { objectId: fabricObject } } }
 const sessions = new Map();
 
 function getOrCreateSession(sessionId) {
     if (!sessions.has(sessionId)) {
         sessions.set(sessionId, {
             users: new Map(),
-            // Przechowujemy pełny stan canvas jako listę obiektów fabric JSON
-            canvasObjects: {},
+            // Przechowujemy stan canvas pogrupowany po stronach
+            canvasState: {}, // pageId -> { objectId: fabricObject }
         });
     }
     return sessions.get(sessionId);
@@ -34,9 +34,10 @@ function getOrCreateSession(sessionId) {
 app.get('/api/session/:sessionId', (req, res) => {
     const session = sessions.get(req.params.sessionId);
     if (!session) return res.json({ users: [], objectCount: 0 });
+    const totalObjects = Object.values(session.canvasState).reduce((sum, pageObjects) => sum + Object.keys(pageObjects).length, 0);
     res.json({
         users: Array.from(session.users.values()),
-        objectCount: Object.keys(session.canvasObjects).length,
+        objectCount: totalObjects,
     });
 });
 
@@ -82,7 +83,7 @@ io.on('connection', (socket) => {
         socket.emit('session-joined', {
             user: currentUser,
             users: Array.from(session.users.values()),
-            canvasObjects: session.canvasObjects,
+            canvasObjects: session.canvasState,
         });
 
         // Poinformuj innych o nowym użytkowniku
@@ -92,16 +93,22 @@ io.on('connection', (socket) => {
     });
 
     // --- Rysowanie: nowy obiekt dodany ---
-    socket.on('canvas:object-added', ({ objectId, fabricObject }) => {
+    socket.on('canvas:object-added', ({ pageId, objectId, fabricObject }) => {
         if (!currentSessionId) return;
         const session = sessions.get(currentSessionId);
         if (!session) return;
 
+        // Upewnij się, że strona istnieje
+        if (!session.canvasState[pageId]) {
+            session.canvasState[pageId] = {};
+        }
+
         // Zapisz obiekt w stanie sesji
-        session.canvasObjects[objectId] = fabricObject;
+        session.canvasState[pageId][objectId] = fabricObject;
 
         // Rozgłoś do pozostałych
         socket.to(currentSessionId).emit('canvas:object-added', {
+            pageId,
             objectId,
             fabricObject,
             senderId: socket.id,
@@ -109,14 +116,17 @@ io.on('connection', (socket) => {
     });
 
     // --- Rysowanie: obiekt zmodyfikowany ---
-    socket.on('canvas:object-modified', ({ objectId, fabricObject }) => {
+    socket.on('canvas:object-modified', ({ pageId, objectId, fabricObject }) => {
         if (!currentSessionId) return;
         const session = sessions.get(currentSessionId);
         if (!session) return;
 
-        session.canvasObjects[objectId] = fabricObject;
+        if (session.canvasState[pageId]) {
+            session.canvasState[pageId][objectId] = fabricObject;
+        }
 
         socket.to(currentSessionId).emit('canvas:object-modified', {
+            pageId,
             objectId,
             fabricObject,
             senderId: socket.id,
@@ -124,28 +134,34 @@ io.on('connection', (socket) => {
     });
 
     // --- Rysowanie: obiekt usunięty ---
-    socket.on('canvas:object-removed', ({ objectId }) => {
+    socket.on('canvas:object-removed', ({ pageId, objectId }) => {
         if (!currentSessionId) return;
         const session = sessions.get(currentSessionId);
         if (!session) return;
 
-        delete session.canvasObjects[objectId];
+        if (session.canvasState[pageId]) {
+            delete session.canvasState[pageId][objectId];
+        }
 
         socket.to(currentSessionId).emit('canvas:object-removed', {
+            pageId,
             objectId,
             senderId: socket.id,
         });
     });
 
-    // --- Wyczyszczenie całej tablicy ---
-    socket.on('canvas:clear', () => {
+    // --- Wyczyszczenie strony ---
+    socket.on('canvas:clear', ({ pageId }) => {
         if (!currentSessionId) return;
         const session = sessions.get(currentSessionId);
         if (!session) return;
 
-        session.canvasObjects = {};
+        if (session.canvasState[pageId]) {
+            session.canvasState[pageId] = {};
+        }
 
         socket.to(currentSessionId).emit('canvas:clear', {
+            pageId,
             senderId: socket.id,
         });
     });
