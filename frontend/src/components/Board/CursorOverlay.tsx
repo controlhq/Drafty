@@ -1,10 +1,23 @@
 import { RemoteCursor } from '../../hooks/useSocket';
+import { A4_WIDTH, A4_HEIGHT } from '../../hooks/useCanvas';
 
 interface CursorOverlayProps {
     cursors: RemoteCursor[];
+    currentPageId: string;
 }
 
-export function CursorOverlay({ cursors }: CursorOverlayProps) {
+export function CursorOverlay({ cursors, currentPageId }: CursorOverlayProps) {
+    // Calculate scale to fit A4 in viewport while maintaining aspect ratio
+    const scale = Math.min(
+        (window.innerWidth * 0.8) / A4_WIDTH,
+        (window.innerHeight * 0.8) / A4_HEIGHT
+    );
+
+    const scaledWidth = A4_WIDTH * scale;
+    const scaledHeight = A4_HEIGHT * scale;
+    const offsetX = (window.innerWidth - scaledWidth) / 2;
+    const offsetY = (window.innerHeight - scaledHeight) / 2 + 50; // Account for toolbar
+
     return (
         <div style={{
             position: 'fixed',
@@ -15,13 +28,15 @@ export function CursorOverlay({ cursors }: CursorOverlayProps) {
             pointerEvents: 'none',
             zIndex: 50,
         }}>
-            {cursors.map((cursor) => (
+            {cursors
+                .filter(cursor => cursor.pageId === currentPageId)
+                .map((cursor) => (
                 <div
                     key={cursor.socketId}
                     style={{
                         position: 'absolute',
-                        left: cursor.x,
-                        top: cursor.y,
+                        left: offsetX + cursor.x * scale,
+                        top: offsetY + cursor.y * scale,
                         transform: 'translate(-2px, -2px)',
                         pointerEvents: 'none',
                         transition: 'left 0.05s linear, top 0.05s linear',

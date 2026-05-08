@@ -1,215 +1,256 @@
-import { useEffect, useRef, RefObject, MutableRefObject, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { fabric } from 'fabric';
 import { v4 as uuidv4 } from 'uuid';
 
 export type Tool = 'pen' | 'eraser';
-
-export interface UseCanvasReturn {
-  canvasRef: RefObject<HTMLCanvasElement>;
-  canvas: MutableRefObject<fabric.Canvas | null>;
-  isApplyingRemote: MutableRefObject<boolean>;
-  setTool: (tool: Tool) => void;
-  setBrushSize: (size: number) => void;
-  setColor: (color: string) => void;
-  currentColor: string;
-  clearCanvas: () => void;
-}
-
-interface UseCanvasOptions {
-  onObjectAdded?: (objectId: string, fabricObject: object) => void;
-  onObjectModified?: (objectId: string, fabricObject: object) => void;
-  onObjectRemoved?: (objectId: string) => void;
-  onCursorMove?: (x: number, y: number) => void;
-}
-
-// Przechowujemy mapę customId -> fabric object
+export const A4_WIDTH = 794;
+export const A4_HEIGHT = 1123;
 const CUSTOM_ID_KEY = 'customId';
 
-export function useCanvas(options: UseCanvasOptions = {}): UseCanvasReturn {
+export interface PageInfo {
+  id: string;
+  name: string;
+  objects: Record<string, any>;
+}
+
+export function useCanvas(options: any = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvas = useRef<fabric.Canvas | null>(null);
   const isApplyingRemote = useRef(false);
+  
+  // --- GŁÓWNY MAGAZYN DANYCH ---
+  // Używamy Ref, aby dane były dostępne natychmiastowo dla mechanizmów Fabric i Socketów
+  const pagesRef = useRef<PageInfo[]>([{ id: uuidv4(), name: 'Strona 1', objects: {} }]);
+  
+  // Stany Reacta do odświeżania komponentów UI (Toolbar, Listy stron)
+  const [pages, setPagesState] = useState<PageInfo[]>(pagesRef.current);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [currentColor, setCurrentColorState] = useState('#000000');
-  const currentColorRef = useRef('#000000');
+
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  const updateCursor = (size: number) => {
-    if (!canvas.current) return;
-    const cursorSize = Math.max(size, 5);
-    const svg = `<svg width="${cursorSize}" height="${cursorSize}" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="${cursorSize / 2}" cy="${cursorSize / 2}" r="${size / 2}" fill="none" stroke="black" stroke-width="1"/>
-    </svg>`;
-    const encoded = btoa(svg);
-    canvas.current.defaultCursor = `url(data:image/svg+xml;base64,${encoded}) ${cursorSize / 2} ${cursorSize / 2}, crosshair`;
-  };
+  // Ref do śledzenia indeksu wewnątrz callbacków Fabric (omijamy closure problem)
+  const currentPageIndexRef = useRef(0);
+  useEffect(() => {
+    currentPageIndexRef.current = currentPageIndex;
+  }, [currentPageIndex]);
 
-  const setTool = useCallback((tool: Tool) => {
-    if (!canvas.current) return;
-    if (tool === 'pen') {
-      canvas.current.freeDrawingBrush.color = currentColorRef.current;
-    } else if (tool === 'eraser') {
-      canvas.current.freeDrawingBrush.color = '#ffffff';
-    }
+  // --- LOGIKA WEWNĘTRZNA ---
+
+  const getCanvasData = useCallback(() => {
+    if (!canvas.current) return {};
+    const data: Record<string, any> = {};
+    canvas.current.getObjects().forEach((obj: any) => {
+      if (obj.customId) {
+        data[obj.customId] = obj.toJSON([CUSTOM_ID_KEY]);
+      }
+    });
+    return data;
   }, []);
 
-  const setBrushSize = useCallback((size: number) => {
+  const loadDataToCanvas = useCallback((data: Record<string, any>) => {
     if (!canvas.current) return;
-    canvas.current.freeDrawingBrush.width = size;
-    updateCursor(size);
-  }, []);
+    const c = canvas.current;
 
-  const setColor = useCallback((color: string) => {
-    currentColorRef.current = color;
-    setCurrentColorState(color);
-    if (!canvas.current) return;
-    if (canvas.current.freeDrawingBrush) {
-      canvas.current.freeDrawingBrush.color = color;
-    }
-  }, []);
-
-  const clearCanvas = useCallback(() => {
-    if (!canvas.current) return;
-    canvas.current.clear();
-    canvas.current.backgroundColor = '#ffffff';
-    canvas.current.renderAll();
-  }, []);
-
-  // Zaaplikuj obiekt zdalny na canvas
-  const applyRemoteObject = useCallback((objectId: string, fabricJSON: object) => {
-    if (!canvas.current) return;
     isApplyingRemote.current = true;
+    c.clear();
+    c.setBackgroundColor('#ffffff', () => {
+      const objects = Object.values(data);
+      if (objects.length === 0) {
+        c.renderAll();
+        isApplyingRemote.current = false;
+        return;
+      }
 
-    // Usuń stary obiekt o tym samym ID jeśli istnieje
-    const existing = canvas.current.getObjects().find(
-        (obj) => (obj as fabric.Object & { customId?: string }).customId === objectId
-    );
-    if (existing) {
-      canvas.current.remove(existing);
-    }
-
-    fabric.util.enlivenObjects(
-        [fabricJSON],
-        (objects: fabric.Object[]) => {
-          objects.forEach((obj) => {
-            (obj as fabric.Object & { customId?: string }).customId = objectId;
-            obj.selectable = false;
-            obj.evented = false;
-            canvas.current?.add(obj);
-          });
-          canvas.current?.renderAll();
-          isApplyingRemote.current = false;
-        },
-        'fabric'
-    );
+      fabric.util.enlivenObjects(objects, (enlivened: fabric.Object[]) => {
+        enlivened.forEach((obj, i) => {
+          (obj as any).customId = Object.keys(data)[i];
+          obj.selectable = false;
+          obj.evented = false;
+          c.add(obj);
+        });
+        c.renderAll();
+        isApplyingRemote.current = false;
+      }, 'fabric');
+    });
   }, []);
 
-  const removeRemoteObject = useCallback((objectId: string) => {
-    if (!canvas.current) return;
-    const obj = canvas.current.getObjects().find(
-        (o) => (o as fabric.Object & { customId?: string }).customId === objectId
-    );
-    if (obj) {
-      canvas.current.remove(obj);
-      canvas.current.renderAll();
-    }
-  }, []);
-
-  // Załaduj pełny stan canvas z serwera
-  const loadCanvasState = useCallback((canvasObjects: Record<string, object>) => {
-    if (!canvas.current) return;
-    isApplyingRemote.current = true;
-    canvas.current.clear();
-    canvas.current.backgroundColor = '#ffffff';
-
-    const objects = Object.entries(canvasObjects);
-    if (objects.length === 0) {
-      canvas.current.renderAll();
-      isApplyingRemote.current = false;
-      return;
-    }
-
-    const fabricObjects = objects.map(([, obj]) => obj);
-    const ids = objects.map(([id]) => id);
-
-    fabric.util.enlivenObjects(
-        fabricObjects,
-        (enlivened: fabric.Object[]) => {
-          enlivened.forEach((obj, i) => {
-            (obj as fabric.Object & { customId?: string }).customId = ids[i];
-            obj.selectable = false;
-            obj.evented = false;
-            canvas.current?.add(obj);
-          });
-          canvas.current?.renderAll();
-          isApplyingRemote.current = false;
-        },
-        'fabric'
-    );
-  }, []);
+  // --- INICJALIZACJA PŁÓTNA ---
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || canvas.current) return;
 
-    const fabricCanvas = new fabric.Canvas(canvasRef.current, {
+    const c = new fabric.Canvas(canvasRef.current, {
       isDrawingMode: true,
       backgroundColor: '#ffffff',
+      width: A4_WIDTH,
+      height: A4_HEIGHT,
       selection: false,
     });
 
-    fabricCanvas.freeDrawingBrush.width = 3;
-    fabricCanvas.freeDrawingBrush.color = '#000000';
-    canvas.current = fabricCanvas;
-    updateCursor(3);
+    canvas.current = c;
 
-    // Resize
-    const resize = () => {
-      fabricCanvas.setWidth(window.innerWidth);
-      fabricCanvas.setHeight(window.innerHeight);
-      fabricCanvas.renderAll();
-    };
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(document.documentElement);
-
-    // Śledzenie ruchu kursora
-    fabricCanvas.on('mouse:move', (e) => {
-      const pointer = fabricCanvas.getPointer(e.e);
-      optionsRef.current.onCursorMove?.(pointer.x, pointer.y);
-    });
-
-    // Po zakończeniu rysowania ścieżki — wyślij do serwera
-    fabricCanvas.on('path:created', (e) => {
+    c.on('path:created', (e: any) => {
       if (isApplyingRemote.current) return;
-      const path = e.path as fabric.Path & { customId?: string };
-      const objectId = uuidv4();
-      path.customId = objectId;
-      path.selectable = false;
-      path.evented = false;
-
-      const json = path.toJSON([CUSTOM_ID_KEY]);
-      optionsRef.current.onObjectAdded?.(objectId, json);
+      const id = uuidv4();
+      e.path.customId = id;
+      e.path.selectable = false;
+      
+      const activePageId = pagesRef.current[currentPageIndexRef.current].id;
+      optionsRef.current.onObjectAdded?.(activePageId, id, e.path.toJSON([CUSTOM_ID_KEY]));
     });
+
+    // Wczytaj stan początkowy
+    loadDataToCanvas(pagesRef.current[0].objects);
 
     return () => {
-      observer.disconnect();
-      fabricCanvas.dispose();
+      c.dispose();
       canvas.current = null;
     };
   }, []);
 
+  // --- ZARZĄDZANIE STRONAMI ---
+
+  const switchToPage = useCallback((newIndex: number) => {
+    if (!canvas.current || newIndex === currentPageIndex) return;
+
+    // 1. Zapisz stan obecnej strony
+    pagesRef.current[currentPageIndex].objects = getCanvasData();
+
+    // 2. Przełącz indeks
+    setCurrentPageIndex(newIndex);
+    
+    // 3. Załaduj dane nowej strony
+    const nextData = pagesRef.current[newIndex].objects || {};
+    loadDataToCanvas(nextData);
+  }, [currentPageIndex, getCanvasData, loadDataToCanvas]);
+
+  const addPage = useCallback(() => {
+    pagesRef.current[currentPageIndex].objects = getCanvasData();
+
+    const newPage: PageInfo = { 
+      id: uuidv4(), 
+      name: `Strona ${pagesRef.current.length + 1}`, 
+      objects: {} 
+    };
+    
+    pagesRef.current.push(newPage);
+    setPagesState([...pagesRef.current]);
+    switchToPage(pagesRef.current.length - 1);
+  }, [currentPageIndex, getCanvasData, switchToPage]);
+
+  const deletePage = useCallback((index: number) => {
+    if (pagesRef.current.length <= 1) return;
+
+    pagesRef.current.splice(index, 1);
+    
+    let nextIndex = currentPageIndex;
+    if (nextIndex >= pagesRef.current.length) {
+      nextIndex = pagesRef.current.length - 1;
+    }
+
+    setPagesState([...pagesRef.current]);
+    setCurrentPageIndex(nextIndex);
+    loadDataToCanvas(pagesRef.current[nextIndex].objects || {});
+  }, [currentPageIndex, loadDataToCanvas]);
+
+  const renamePage = useCallback((index: number, newName: string) => {
+    if (!newName.trim()) return;
+    pagesRef.current[index].name = newName;
+    setPagesState([...pagesRef.current]);
+  }, []);
+
+  // --- OBSŁUGA ZDARZEŃ ZDALNYCH (SOCKETS) ---
+
+  const applyRemoteObject = useCallback((pageId: string, objectId: string, fabricJSON: any) => {
+    const page = pagesRef.current.find(p => p.id === pageId);
+    if (page) {
+      page.objects[objectId] = fabricJSON;
+    }
+
+    // Jeśli to aktualna strona, renderujemy "na żywo"
+    if (pageId === pagesRef.current[currentPageIndexRef.current].id && canvas.current) {
+      isApplyingRemote.current = true;
+      fabric.util.enlivenObjects([fabricJSON], (enlivened: fabric.Object[]) => {
+        const obj = enlivened[0];
+        (obj as any).customId = objectId;
+        obj.selectable = false;
+        obj.evented = false;
+        canvas.current?.add(obj);
+        canvas.current?.renderAll();
+        isApplyingRemote.current = false;
+      }, 'fabric');
+    }
+  }, []);
+
+  const removeRemoteObject = useCallback((pageId: string, objectId: string) => {
+    const page = pagesRef.current.find(p => p.id === pageId);
+    if (page) {
+      delete page.objects[objectId];
+    }
+
+    if (pageId === pagesRef.current[currentPageIndexRef.current].id && canvas.current) {
+      const obj = canvas.current.getObjects().find((o: any) => o.customId === objectId);
+      if (obj) {
+        canvas.current.remove(obj);
+        canvas.current.renderAll();
+      }
+    }
+  }, []);
+
+  const clearPageObjects = useCallback((pageId: string) => {
+    const page = pagesRef.current.find(p => p.id === pageId);
+    if (page) page.objects = {};
+    
+    if (pageId === pagesRef.current[currentPageIndexRef.current].id) {
+      canvas.current?.clear().setBackgroundColor('#ffffff').renderAll();
+    }
+  }, []);
+
+  // --- EKSPORT METOD ---
+
   return {
     canvasRef,
-    canvas,
-    isApplyingRemote,
-    setTool,
-    setBrushSize,
-    setColor,
+    pages,
+    currentPageIndex,
     currentColor,
-    clearCanvas,
-    // @ts-ignore — eksportujemy pomocnicze metody
+    setTool: (t: Tool) => {
+      if (canvas.current) {
+        canvas.current.isDrawingMode = true;
+        canvas.current.freeDrawingBrush.color = t === 'eraser' ? '#ffffff' : currentColor;
+      }
+    },
+    setColor: (c: string) => {
+      setCurrentColorState(c);
+      if (canvas.current) canvas.current.freeDrawingBrush.color = c;
+    },
+    setBrushSize: (s: number) => {
+      if (canvas.current) canvas.current.freeDrawingBrush.width = s;
+    },
+    clearCanvas: () => {
+      canvas.current?.clear().setBackgroundColor('#ffffff').renderAll();
+    },
+    addPage,
+    switchToPage,
+    deletePage,
+    renamePage,
     applyRemoteObject,
     removeRemoteObject,
-    loadCanvasState,
+    clearPageObjects,
+    getCurrentPageId: () => pagesRef.current[currentPageIndex].id,
+    loadCanvasState: (allState: any) => {
+      const serverPages = Object.keys(allState).map((pid, idx) => ({
+        id: pid,
+        name: `Strona ${idx + 1}`,
+        objects: allState[pid]
+      }));
+
+      if (serverPages.length > 0) {
+        pagesRef.current = serverPages;
+        setPagesState([...pagesRef.current]);
+        loadDataToCanvas(pagesRef.current[0].objects);
+      }
+    }
   };
 }
