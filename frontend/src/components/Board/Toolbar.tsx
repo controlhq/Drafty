@@ -13,6 +13,7 @@ interface ToolbarProps {
   connected: boolean;
   username: string;
   latency?: number | null;
+  e2eLatency?: number | null;
   pages: PageInfo[];
   currentPageIndex: number;
   onAddPage: () => void;
@@ -32,6 +33,7 @@ export function Toolbar({
   connected,
   username,
   latency,
+  e2eLatency,
   pages,
   currentPageIndex,
   onAddPage,
@@ -319,7 +321,7 @@ export function Toolbar({
           />
           <span style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>{username}</span>
           {latency !== null && latency !== undefined && (
-            <span style={{
+            <span title="RTT — czas ping/pong do serwera" style={{
               fontSize: '11px',
               fontWeight: 500,
               color: latency < 80 ? '#10b981' : latency < 200 ? '#f59e0b' : '#ef4444',
@@ -327,7 +329,19 @@ export function Toolbar({
               padding: '2px 6px',
               borderRadius: '4px',
             }}>
-              {latency}ms
+              RTT {latency}ms
+            </span>
+          )}
+          {e2eLatency !== null && e2eLatency !== undefined && (
+            <span title="E2E — czas od wysłania zdarzenia przez innego użytkownika do pojawienia się u Ciebie" style={{
+              fontSize: '11px',
+              fontWeight: 500,
+              color: e2eLatency < 80 ? '#10b981' : e2eLatency < 200 ? '#f59e0b' : '#ef4444',
+              backgroundColor: e2eLatency < 80 ? '#f0fdf4' : e2eLatency < 200 ? '#fffbeb' : '#fef2f2',
+              padding: '2px 6px',
+              borderRadius: '4px',
+            }}>
+              E2E {e2eLatency}ms
             </span>
           )}
         </div>

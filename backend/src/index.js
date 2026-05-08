@@ -106,12 +106,12 @@ io.on('connection', (socket) => {
         // Zapisz obiekt w stanie sesji
         session.canvasState[pageId][objectId] = fabricObject;
 
-        // Rozgłoś do pozostałych
         socket.to(currentSessionId).emit('canvas:object-added', {
             pageId,
             objectId,
             fabricObject,
             senderId: socket.id,
+            serverTs: Date.now(),
         });
     });
 
@@ -130,6 +130,7 @@ io.on('connection', (socket) => {
             objectId,
             fabricObject,
             senderId: socket.id,
+            serverTs: Date.now(),
         });
     });
 
@@ -166,9 +167,9 @@ io.on('connection', (socket) => {
         });
     });
 
-    // --- Ping/pong do pomiaru latency ---
-    socket.on('ping-latency', (ts) => {
-        socket.emit('pong-latency', ts);
+    // --- Ping/pong do pomiaru latency (NTP-style: zwracamy też serverTs do obliczenia clock offset) ---
+    socket.on('ping-latency', (clientTs) => {
+        socket.emit('pong-latency', { clientTs, serverTs: Date.now() });
     });
 
     // --- Pozycja kursora ---

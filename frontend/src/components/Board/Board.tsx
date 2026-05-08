@@ -22,6 +22,7 @@ export function Board() {
   const [connected, setConnected] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
+  const [e2eLatency, setE2ELatency] = useState<number | null>(null);
 
   // --- REFERENCJE DO METOD ZDALNYCH ---
   const applyRemoteRef = useRef<((pageId: string, id: string, obj: object) => void) | null>(null);
@@ -93,6 +94,7 @@ export function Board() {
     onUserJoined: handleUserJoined,
     onUserLeft: handleUserLeft,
     onLatencyUpdate: setLatency,
+    onE2ELatencyUpdate: setE2ELatency,
   });
 
   const canvasHook = useCanvas({
@@ -142,6 +144,7 @@ export function Board() {
         connected={connected}
         username={username}
         latency={latency}
+        e2eLatency={e2eLatency}
         // Page management
         pages={canvasHook.pages}
         currentPageIndex={canvasHook.currentPageIndex}

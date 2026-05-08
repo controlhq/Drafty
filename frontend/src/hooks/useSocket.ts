@@ -36,12 +36,14 @@ interface UseSocketOptions {
     onUserJoined: (user: UserInfo) => void;
     onUserLeft: (socketId: string, username: string) => void;
     onLatencyUpdate?: (ms: number) => void;
+    onE2ELatencyUpdate?: (ms: number) => void;
 }
 
 export function useSocket(options: UseSocketOptions) {
     const socketRef = useRef<Socket | null>(null);
     const optionsRef = useRef(options);
     optionsRef.current = options;
+    const clockOffsetRef = useRef<number>(0);
 
     useEffect(() => {
         const socket = io(SOCKET_URL, { transports: ['websocket'] });
@@ -58,19 +60,30 @@ export function useSocket(options: UseSocketOptions) {
             socket.emit('ping-latency', Date.now());
         }, 3000);
 
-        socket.on('pong-latency', (ts: number) => {
-            optionsRef.current.onLatencyUpdate?.(Date.now() - ts);
+        socket.on('pong-latency', ({ clientTs, serverTs }: { clientTs: number; serverTs: number }) => {
+            const now = Date.now();
+            const rtt = now - clientTs;
+            clockOffsetRef.current = serverTs - (clientTs + rtt / 2);
+            optionsRef.current.onLatencyUpdate?.(rtt);
         });
 
         socket.on('session-joined', (payload: SessionJoinedPayload) => {
             optionsRef.current.onSessionJoined(payload);
         });
 
-        socket.on('canvas:object-added', ({ pageId, objectId, fabricObject }: { pageId: string; objectId: string; fabricObject: object }) => {
+        socket.on('canvas:object-added', ({ pageId, objectId, fabricObject, serverTs }: { pageId: string; objectId: string; fabricObject: object; serverTs?: number }) => {
+            if (serverTs !== undefined) {
+                const e2e = Date.now() - clockOffsetRef.current - serverTs;
+                optionsRef.current.onE2ELatencyUpdate?.(Math.max(0, e2e));
+            }
             optionsRef.current.onObjectAdded(pageId, objectId, fabricObject);
         });
 
-        socket.on('canvas:object-modified', ({ pageId, objectId, fabricObject }: { pageId: string; objectId: string; fabricObject: object }) => {
+        socket.on('canvas:object-modified', ({ pageId, objectId, fabricObject, serverTs }: { pageId: string; objectId: string; fabricObject: object; serverTs?: number }) => {
+            if (serverTs !== undefined) {
+                const e2e = Date.now() - clockOffsetRef.current - serverTs;
+                optionsRef.current.onE2ELatencyUpdate?.(Math.max(0, e2e));
+            }
             optionsRef.current.onObjectModified(pageId, objectId, fabricObject);
         });
 
