@@ -166,6 +166,11 @@ io.on('connection', (socket) => {
         });
     });
 
+    // --- Ping/pong do pomiaru latency ---
+    socket.on('ping-latency', (ts) => {
+        socket.emit('pong-latency', ts);
+    });
+
     // --- Pozycja kursora ---
     socket.on('cursor:move', ({ x, y }) => {
         if (!currentSessionId || !currentUser) return;

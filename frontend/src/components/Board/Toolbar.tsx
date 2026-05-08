@@ -12,6 +12,7 @@ interface ToolbarProps {
   onClear: () => void;
   connected: boolean;
   username: string;
+  latency?: number | null;
   pages: PageInfo[];
   currentPageIndex: number;
   onAddPage: () => void;
@@ -30,6 +31,7 @@ export function Toolbar({
   onClear,
   connected,
   username,
+  latency,
   pages,
   currentPageIndex,
   onAddPage,
@@ -316,6 +318,18 @@ export function Toolbar({
             }}
           />
           <span style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>{username}</span>
+          {latency !== null && latency !== undefined && (
+            <span style={{
+              fontSize: '11px',
+              fontWeight: 500,
+              color: latency < 80 ? '#10b981' : latency < 200 ? '#f59e0b' : '#ef4444',
+              backgroundColor: latency < 80 ? '#f0fdf4' : latency < 200 ? '#fffbeb' : '#fef2f2',
+              padding: '2px 6px',
+              borderRadius: '4px',
+            }}>
+              {latency}ms
+            </span>
+          )}
         </div>
       </div>
     </div>

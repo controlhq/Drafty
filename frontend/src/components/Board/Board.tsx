@@ -21,6 +21,7 @@ export function Board() {
   const [remoteCursors, setRemoteCursors] = useState<Record<string, RemoteCursor>>({});
   const [connected, setConnected] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [latency, setLatency] = useState<number | null>(null);
 
   // --- REFERENCJE DO METOD ZDALNYCH ---
   const applyRemoteRef = useRef<((pageId: string, id: string, obj: object) => void) | null>(null);
@@ -91,6 +92,7 @@ export function Board() {
     onCursorMove: handleCursorMove,
     onUserJoined: handleUserJoined,
     onUserLeft: handleUserLeft,
+    onLatencyUpdate: setLatency,
   });
 
   const canvasHook = useCanvas({
@@ -139,6 +141,7 @@ export function Board() {
         onClear={handleClearCanvas}
         connected={connected}
         username={username}
+        latency={latency}
         // Page management
         pages={canvasHook.pages}
         currentPageIndex={canvasHook.currentPageIndex}

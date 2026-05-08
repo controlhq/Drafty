@@ -35,6 +35,7 @@ interface UseSocketOptions {
     onCursorMove: (cursor: RemoteCursor) => void;
     onUserJoined: (user: UserInfo) => void;
     onUserLeft: (socketId: string, username: string) => void;
+    onLatencyUpdate?: (ms: number) => void;
 }
 
 export function useSocket(options: UseSocketOptions) {
@@ -51,6 +52,14 @@ export function useSocket(options: UseSocketOptions) {
                 sessionId: options.sessionId,
                 username: options.username,
             });
+        });
+
+        const pingInterval = setInterval(() => {
+            socket.emit('ping-latency', Date.now());
+        }, 3000);
+
+        socket.on('pong-latency', (ts: number) => {
+            optionsRef.current.onLatencyUpdate?.(Date.now() - ts);
         });
 
         socket.on('session-joined', (payload: SessionJoinedPayload) => {
@@ -86,6 +95,7 @@ export function useSocket(options: UseSocketOptions) {
         });
 
         return () => {
+            clearInterval(pingInterval);
             socket.disconnect();
         };
     }, [options.sessionId, options.username]);
