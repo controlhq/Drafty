@@ -21,15 +21,10 @@ export function useCanvas(options: any = {}) {
   const canvas = useRef<fabric.Canvas | null>(null);
   const isApplyingRemote = useRef(false);
   
-  // --- GŁÓWNY MAGAZYN DANYCH ---
-  // Używamy Ref, aby dane były dostępne natychmiastowo dla mechanizmów Fabric i Socketów
   const pagesRef = useRef<PageInfo[]>([{ id: uuidv4(), name: 'Strona 1', objects: {} }]);
-
-  // --- HISTORIA COFANIA (per strona) ---
   const historyRef = useRef<Map<string, HistorySnapshot[]>>(new Map());
   const isUndoingRef = useRef(false);
   
-  // Stany Reacta do odświeżania komponentów UI (Toolbar, Listy stron)
   const [pages, setPagesState] = useState<PageInfo[]>(pagesRef.current);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [currentColor, setCurrentColorState] = useState('#000000');
@@ -37,13 +32,10 @@ export function useCanvas(options: any = {}) {
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  // Ref do śledzenia indeksu wewnątrz callbacków Fabric (omijamy closure problem)
   const currentPageIndexRef = useRef(0);
   useEffect(() => {
     currentPageIndexRef.current = currentPageIndex;
   }, [currentPageIndex]);
-
-  // --- HISTORIA: HELPERS ---
 
   const getHistory = useCallback((pageId: string): HistorySnapshot[] => {
     if (!historyRef.current.has(pageId)) {
@@ -59,8 +51,6 @@ export function useCanvas(options: any = {}) {
       history.shift();
     }
   }, [getHistory]);
-
-  // --- LOGIKA WEWNĘTRZNA ---
 
   const getCanvasData = useCallback(() => {
     if (!canvas.current) return {};
@@ -87,7 +77,7 @@ export function useCanvas(options: any = {}) {
         return;
       }
 
-      fabric.util.enlivenObjects(objects, (enlivened: fabric.Object[]) => {
+      (fabric.util.enlivenObjects as any)(objects, (enlivened: fabric.Object[]) => {
         enlivened.forEach((obj, i) => {
           (obj as any).customId = Object.keys(data)[i];
           obj.selectable = false;
@@ -96,11 +86,9 @@ export function useCanvas(options: any = {}) {
         });
         c.renderAll();
         isApplyingRemote.current = false;
-      }, 'fabric');
+      });
     });
   }, []);
-
-  // --- INICJALIZACJA PŁÓTNA ---
 
   useEffect(() => {
     if (!canvasRef.current || canvas.current) return;
@@ -122,15 +110,12 @@ export function useCanvas(options: any = {}) {
       e.path.selectable = false;
       
       const activePageId = pagesRef.current[currentPageIndexRef.current].id;
-
-      // Zapisz snapshot aktualnego stanu (po narysowaniu ścieżki)
       const snapshot = getCanvasData();
       pushHistory(activePageId, snapshot);
 
       optionsRef.current.onObjectAdded?.(activePageId, id, e.path.toJSON([CUSTOM_ID_KEY]));
     });
 
-    // Skrót klawiaturowy Ctrl+Z / Cmd+Z
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
@@ -139,7 +124,6 @@ export function useCanvas(options: any = {}) {
     };
     window.addEventListener('keydown', handleKeyDown);
 
-    // Wczytaj stan początkowy
     loadDataToCanvas(pagesRef.current[0].objects);
 
     return () => {
@@ -149,9 +133,6 @@ export function useCanvas(options: any = {}) {
     };
   }, []);
 
-  // --- COFANIE (UNDO) ---
-
-  // Ref żeby uniknąć closure problem z useEffect (listener klawiatury)
   const undoRef = useRef<(() => void) | null>(null);
 
   const undo = useCallback(() => {
@@ -161,11 +142,8 @@ export function useCanvas(options: any = {}) {
     if (history.length === 0) return;
 
     isUndoingRef.current = true;
-
-    // Usuń ostatni snapshot (aktualny stan)
     history.pop();
 
-    // Przywróć poprzedni (lub pusty jeśli historia wyczerpana)
     const prevSnapshot = history.length > 0 ? history[history.length - 1] : {};
     pagesRef.current[currentPageIndexRef.current].objects = { ...prevSnapshot };
     loadDataToCanvas(prevSnapshot);
@@ -179,18 +157,12 @@ export function useCanvas(options: any = {}) {
     undoRef.current = undo;
   }, [undo]);
 
-  // --- ZARZĄDZANIE STRONAMI ---
-
   const switchToPage = useCallback((newIndex: number) => {
     if (!canvas.current || newIndex === currentPageIndex) return;
 
-    // 1. Zapisz stan obecnej strony
     pagesRef.current[currentPageIndex].objects = getCanvasData();
-
-    // 2. Przełącz indeks
     setCurrentPageIndex(newIndex);
     
-    // 3. Załaduj dane nowej strony
     const nextData = pagesRef.current[newIndex].objects || {};
     loadDataToCanvas(nextData);
   }, [currentPageIndex, getCanvasData, loadDataToCanvas]);
@@ -212,9 +184,7 @@ export function useCanvas(options: any = {}) {
   const deletePage = useCallback((index: number) => {
     if (pagesRef.current.length <= 1) return;
 
-    // Wyczyść historię usuwanej strony
     historyRef.current.delete(pagesRef.current[index].id);
-
     pagesRef.current.splice(index, 1);
     
     let nextIndex = currentPageIndex;
@@ -233,18 +203,15 @@ export function useCanvas(options: any = {}) {
     setPagesState([...pagesRef.current]);
   }, []);
 
-  // --- OBSŁUGA ZDARZEŃ ZDALNYCH (SOCKETS) ---
-
   const applyRemoteObject = useCallback((pageId: string, objectId: string, fabricJSON: any) => {
     const page = pagesRef.current.find(p => p.id === pageId);
     if (page) {
       page.objects[objectId] = fabricJSON;
     }
 
-    // Jeśli to aktualna strona, renderujemy "na żywo"
     if (pageId === pagesRef.current[currentPageIndexRef.current].id && canvas.current) {
       isApplyingRemote.current = true;
-      fabric.util.enlivenObjects([fabricJSON], (enlivened: fabric.Object[]) => {
+      (fabric.util.enlivenObjects as any)([fabricJSON], (enlivened: fabric.Object[]) => {
         const obj = enlivened[0];
         (obj as any).customId = objectId;
         obj.selectable = false;
@@ -252,7 +219,7 @@ export function useCanvas(options: any = {}) {
         canvas.current?.add(obj);
         canvas.current?.renderAll();
         isApplyingRemote.current = false;
-      }, 'fabric');
+      });
     }
   }, []);
 
@@ -275,7 +242,6 @@ export function useCanvas(options: any = {}) {
     const page = pagesRef.current.find(p => p.id === pageId);
     if (page) page.objects = {};
 
-    // Wyczyść też historię tej strony
     historyRef.current.set(pageId, []);
     
     if (pageId === pagesRef.current[currentPageIndexRef.current].id) {
@@ -283,13 +249,9 @@ export function useCanvas(options: any = {}) {
     }
   }, []);
 
-  // --- EKSPORT DO PDF ---
-
   const exportToPDF = useCallback(async () => {
-    // Lazy import — nie obciąża startu aplikacji
     const { jsPDF } = await import('jspdf');
 
-    // Zapisz stan aktualnej strony przed eksportem
     pagesRef.current[currentPageIndexRef.current].objects = getCanvasData();
 
     const pdf = new jsPDF({
@@ -326,7 +288,7 @@ export function useCanvas(options: any = {}) {
           return;
         }
 
-        fabric.util.enlivenObjects(objects, (enlivened: fabric.Object[]) => {
+        (fabric.util.enlivenObjects as any)(objects, (enlivened: fabric.Object[]) => {
           enlivened.forEach((obj, idx) => {
             (obj as any).customId = Object.keys(page.objects)[idx];
             tmpFabric.add(obj);
@@ -337,14 +299,12 @@ export function useCanvas(options: any = {}) {
           pdf.addImage(dataUrl, 'JPEG', 0, 0, PDF_W, PDF_H);
           tmpFabric.dispose();
           resolve();
-        }, 'fabric');
+        });
       });
     }
 
     pdf.save('drafty-eksport.pdf');
   }, [getCanvasData]);
-
-  // --- EKSPORT METOD ---
 
   return {
     canvasRef,
