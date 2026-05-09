@@ -23,6 +23,7 @@ export function Board() {
   const [notification, setNotification] = useState<string | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
   const [e2eLatency, setE2ELatency] = useState<number | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   // --- REFERENCJE DO METOD ZDALNYCH ---
   const applyRemoteRef = useRef<((pageId: string, id: string, obj: object) => void) | null>(null);
@@ -125,6 +126,19 @@ export function Board() {
     emitClear(canvasHook.getCurrentPageId());
   };
 
+  const handleExportPDF = async () => {
+    setIsExporting(true);
+    try {
+      await canvasHook.exportToPDF();
+      showNotification('✅ PDF został zapisany');
+    } catch (err) {
+      console.error('Błąd eksportu PDF:', err);
+      showNotification('❌ Błąd podczas eksportu PDF');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   if (!sessionId) {
     navigate('/');
     return null;
@@ -141,6 +155,9 @@ export function Board() {
         currentColor={canvasHook.currentColor}
         onColorChange={canvasHook.setColor}
         onClear={handleClearCanvas}
+        onUndo={canvasHook.undo}
+        onExportPDF={handleExportPDF}
+        isExporting={isExporting}
         connected={connected}
         username={username}
         latency={latency}
@@ -151,7 +168,7 @@ export function Board() {
         onAddPage={canvasHook.addPage}
         onSwitchToPage={canvasHook.switchToPage}
         onDeletePage={canvasHook.deletePage}
-        onRenamePage={canvasHook.renamePage} // <--- TO ZOSTAŁO DODANE
+        onRenamePage={canvasHook.renamePage}
       />
 
       {/* Płótno (Wycentrowane) */}

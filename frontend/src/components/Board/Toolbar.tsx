@@ -10,6 +10,9 @@ interface ToolbarProps {
   currentColor: string;
   onColorChange: (color: string) => void;
   onClear: () => void;
+  onUndo: () => void;
+  onExportPDF: () => void;
+  isExporting: boolean;
   connected: boolean;
   username: string;
   latency?: number | null;
@@ -30,6 +33,9 @@ export function Toolbar({
   currentColor,
   onColorChange,
   onClear,
+  onUndo,
+  onExportPDF,
+  isExporting,
   connected,
   username,
   latency,
@@ -90,7 +96,7 @@ export function Toolbar({
       }}
     >
       {/* SEKCJA: NARZĘDZIA */}
-      <div style={{ display: 'flex', gap: '4px', marginRight: '20px' }}>
+      <div style={{ display: 'flex', gap: '4px', marginRight: '12px' }}>
         <button
           onClick={() => onToolChange('pen')}
           style={{
@@ -120,6 +126,38 @@ export function Toolbar({
           🧽 Gumka
         </button>
       </div>
+
+      {/* SEPARATOR */}
+      <div style={{ width: '1px', height: '28px', background: '#e5e7eb', marginRight: '12px', flexShrink: 0 }} />
+
+      {/* SEKCJA: COFNIJ */}
+      <button
+        onClick={onUndo}
+        title="Cofnij (Ctrl+Z)"
+        style={{
+          padding: '8px 12px',
+          backgroundColor: 'transparent',
+          color: '#4b5563',
+          border: '1px solid transparent',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          fontWeight: 500,
+          marginRight: '12px',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = '#f3f4f6';
+          e.currentTarget.style.borderColor = '#e5e7eb';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = 'transparent';
+          e.currentTarget.style.borderColor = 'transparent';
+        }}
+      >
+        ↩ Cofnij
+      </button>
+
+      {/* SEPARATOR */}
+      <div style={{ width: '1px', height: '28px', background: '#e5e7eb', marginRight: '12px', flexShrink: 0 }} />
 
       {/* SEKCJA: USTAWIENIA PĘDZLA */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '20px' }}>
@@ -293,8 +331,29 @@ export function Toolbar({
         )}
       </div>
 
-      {/* SEKCJA: STATUS I CZYSZCZENIE */}
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '15px' }}>
+      {/* SEKCJA: EKSPORT PDF + WYCZYŚĆ + STATUS */}
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+
+        {/* EKSPORT PDF */}
+        <button
+          onClick={onExportPDF}
+          disabled={isExporting}
+          title="Eksportuj wszystkie strony do PDF"
+          style={{
+            padding: '6px 12px',
+            backgroundColor: isExporting ? '#f3f4f6' : '#f0fdf4',
+            color: isExporting ? '#9ca3af' : '#16a34a',
+            border: `1px solid ${isExporting ? '#e5e7eb' : '#bbf7d0'}`,
+            borderRadius: '6px',
+            cursor: isExporting ? 'wait' : 'pointer',
+            fontSize: '12px',
+            fontWeight: 500,
+            transition: 'all 0.2s',
+          }}
+        >
+          {isExporting ? '⏳ Eksportuję...' : '📄 Eksport PDF'}
+        </button>
+
         <button
           onClick={onClear}
           style={{
@@ -310,6 +369,7 @@ export function Toolbar({
           Wyczyść
         </button>
 
+        {/* STATUS: połączenie, username, latency (od kolegów — bez zmian) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderLeft: '1px solid #e5e7eb', paddingLeft: '15px' }}>
           <div
             style={{
