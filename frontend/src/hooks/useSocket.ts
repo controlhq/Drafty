@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+const SOCKET_URL = (import.meta as any).env?.VITE_SOCKET_URL || 'http://localhost:3001';
 
 export interface UserInfo {
     socketId: string;
@@ -21,7 +21,7 @@ export interface RemoteCursor {
 export interface SessionJoinedPayload {
     user: UserInfo;
     users: UserInfo[];
-    canvasObjects: Record<string, object>;
+    canvasObjects: Record<string, Record<string, object>>;
 }
 
 interface UseSocketOptions {
