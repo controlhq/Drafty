@@ -104,11 +104,12 @@ io.on('connection', (socket) => {
         }
         session.canvasState[pageId][objectId] = fabricObject;
 
-        // Rozgłoś do pozostałych (bez senderId/serverTs żeby frontend się nie krzaczył)
+        // Rozgłoś do pozostałych
         socket.to(currentSessionId).emit('canvas:object-added', {
             pageId,
             objectId,
             fabricObject,
+            serverTs: Date.now(),
         });
     });
 
@@ -126,6 +127,7 @@ io.on('connection', (socket) => {
             pageId,
             objectId,
             fabricObject,
+            serverTs: Date.now(),
         });
     });
 

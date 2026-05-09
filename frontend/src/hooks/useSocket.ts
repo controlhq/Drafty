@@ -53,6 +53,7 @@ export function useSocket(options: UseSocketOptions) {
     const socketRef = useRef<Socket | null>(null);
     const optionsRef = useRef(options);
     optionsRef.current = options;
+    const clockOffsetRef = useRef<number>(0);
 
     useEffect(() => {
         const socket = io(SOCKET_URL, { transports: ['websocket'] });
@@ -69,15 +70,23 @@ export function useSocket(options: UseSocketOptions) {
             optionsRef.current.onSessionJoined(payload);
         });
 
-        socket.on('canvas:object-added', ({ pageId, objectId, fabricObject }: {
-            pageId: string; objectId: string; fabricObject: object;
+        socket.on('canvas:object-added', ({ pageId, objectId, fabricObject, serverTs }: {
+            pageId: string; objectId: string; fabricObject: object; serverTs?: number;
         }) => {
+            if (serverTs !== undefined) {
+                const e2e = Date.now() - clockOffsetRef.current - serverTs;
+                optionsRef.current.onE2ELatencyUpdate?.(Math.max(0, e2e));
+            }
             optionsRef.current.onObjectAdded(pageId, objectId, fabricObject);
         });
 
-        socket.on('canvas:object-modified', ({ pageId, objectId, fabricObject }: {
-            pageId: string; objectId: string; fabricObject: object;
+        socket.on('canvas:object-modified', ({ pageId, objectId, fabricObject, serverTs }: {
+            pageId: string; objectId: string; fabricObject: object; serverTs?: number;
         }) => {
+            if (serverTs !== undefined) {
+                const e2e = Date.now() - clockOffsetRef.current - serverTs;
+                optionsRef.current.onE2ELatencyUpdate?.(Math.max(0, e2e));
+            }
             optionsRef.current.onObjectModified(pageId, objectId, fabricObject);
         });
 
@@ -105,8 +114,10 @@ export function useSocket(options: UseSocketOptions) {
         });
 
         // Latency
-        socket.on('pong-latency', ({ clientTs }: { clientTs: number; serverTs: number }) => {
-            const rtt = Date.now() - clientTs;
+        socket.on('pong-latency', ({ clientTs, serverTs }: { clientTs: number; serverTs: number }) => {
+            const now = Date.now();
+            const rtt = now - clientTs;
+            clockOffsetRef.current = serverTs - (clientTs + rtt / 2);
             optionsRef.current.onLatencyUpdate?.(rtt);
         });
 
