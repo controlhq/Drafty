@@ -245,7 +245,9 @@ export function useCanvas(options: any = {}) {
     historyRef.current.set(pageId, []);
     
     if (pageId === pagesRef.current[currentPageIndexRef.current].id) {
-      canvas.current?.clear().setBackgroundColor('#ffffff').renderAll();
+      canvas.current?.clear();
+      canvas.current?.setBackgroundColor('#ffffff', () => {});
+      canvas.current?.renderAll();
     }
   }, []);
 
@@ -327,7 +329,9 @@ export function useCanvas(options: any = {}) {
     clearCanvas: () => {
       const activePageId = pagesRef.current[currentPageIndexRef.current].id;
       historyRef.current.set(activePageId, []);
-      canvas.current?.clear().setBackgroundColor('#ffffff').renderAll();
+      canvas.current?.clear();
+      canvas.current?.setBackgroundColor('#ffffff', () => {});
+      canvas.current?.renderAll();
     },
     undo,
     exportToPDF,
