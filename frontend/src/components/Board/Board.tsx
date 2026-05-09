@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useCanvas, Tool } from '../../hooks/useCanvas';
-import { useSocket, RemoteCursor, UserInfo } from '../../hooks/useSocket';
+import { useSocket, RemoteCursor, UserInfo, SessionJoinedPayload } from '../../hooks/useSocket';
 import { Canvas } from './Canvas';
 import { Toolbar } from './Toolbar';
 import { CursorOverlay } from './CursorOverlay';
@@ -14,7 +14,6 @@ export function Board() {
   const navigate = useNavigate();
   const username = searchParams.get('username') || 'Anonim';
 
-  // --- STANY UI ---
   const [currentTool, setCurrentTool] = useState<Tool>('pen');
   const [brushSize, setBrushSizeState] = useState(3);
   const [users, setUsers] = useState<UserInfo[]>([]);
@@ -25,7 +24,6 @@ export function Board() {
   const [e2eLatency, setE2ELatency] = useState<number | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
-  // --- REFERENCJE DO METOD ZDALNYCH ---
   const applyRemoteRef = useRef<((pageId: string, id: string, obj: object) => void) | null>(null);
   const removeRemoteRef = useRef<((pageId: string, id: string) => void) | null>(null);
 
@@ -34,15 +32,9 @@ export function Board() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // --- SOCKET CALLBACKS ---
-  const handleSessionJoined = useCallback(({ users: sessionUsers, canvasObjects }: {
-    user: UserInfo;
-    users: UserInfo[];
-    canvasObjects: Record<string, Record<string, object>>;
-  }) => {
+  const handleSessionJoined = useCallback(({ users: sessionUsers, canvasObjects }: SessionJoinedPayload) => {
     setConnected(true);
     setUsers(sessionUsers);
-    // Ładowanie początkowego stanu tablicy (wszystkich stron) z serwera
     canvasHook.loadCanvasState(canvasObjects);
   }, []);
 
@@ -58,8 +50,8 @@ export function Board() {
     removeRemoteRef.current?.(pageId, objectId);
   }, []);
 
-  const handleCursorMove = useCallback((pageId: string, cursor: { x: number; y: number; socketId: string }) => {
-    setRemoteCursors((prev) => ({ ...prev, [cursor.socketId]: { ...cursor, pageId } }));
+  const handleCursorMove = useCallback((cursor: RemoteCursor) => {
+    setRemoteCursors((prev) => ({ ...prev, [cursor.socketId]: cursor }));
   }, []);
 
   const handleUserJoined = useCallback((user: UserInfo) => {
@@ -80,7 +72,6 @@ export function Board() {
     showNotification(`${uname} opuścił tablicę`);
   }, []);
 
-  // --- HOOKS ---
   const { emitObjectAdded, emitObjectModified, emitClear, emitCursorMove } = useSocket({
     sessionId: sessionId!,
     username,
@@ -88,7 +79,7 @@ export function Board() {
     onObjectAdded: handleObjectAdded,
     onObjectModified: handleObjectModified,
     onObjectRemoved: handleObjectRemoved,
-    onCanvasClear: (pageId) => {
+    onCanvasClear: (pageId: string) => {
       canvasHook.clearPageObjects(pageId);
     },
     onCursorMove: handleCursorMove,
@@ -99,18 +90,16 @@ export function Board() {
   });
 
   const canvasHook = useCanvas({
-    onObjectAdded: (pageId, objectId, fabricObject) => emitObjectAdded(pageId, objectId, fabricObject),
-    onObjectModified: (pageId, objectId, fabricObject) => emitObjectModified(pageId, objectId, fabricObject),
-    onCursorMove: (pageId, x, y) => emitCursorMove(pageId, x, y),
+    onObjectAdded: (pageId: string, objectId: string, fabricObject: object) => emitObjectAdded(pageId, objectId, fabricObject),
+    onObjectModified: (pageId: string, objectId: string, fabricObject: object) => emitObjectModified(pageId, objectId, fabricObject),
+    onCursorMove: (pageId: string, x: number, y: number) => emitCursorMove(pageId, x, y),
   });
 
-  // --- SYNCHRONIZACJA METOD ZDALNYCH ---
   useEffect(() => {
     applyRemoteRef.current = canvasHook.applyRemoteObject;
     removeRemoteRef.current = canvasHook.removeRemoteObject;
   }, [canvasHook.applyRemoteObject, canvasHook.removeRemoteObject]);
 
-  // --- HANDLERY UI ---
   const handleToolChange = (tool: Tool) => {
     setCurrentTool(tool);
     canvasHook.setTool(tool);
@@ -146,7 +135,6 @@ export function Board() {
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden', background: '#f3f4f6' }}>
-      {/* Pasek narzędzi */}
       <Toolbar
         currentTool={currentTool}
         onToolChange={handleToolChange}
@@ -162,7 +150,6 @@ export function Board() {
         username={username}
         latency={latency}
         e2eLatency={e2eLatency}
-        // Page management
         pages={canvasHook.pages}
         currentPageIndex={canvasHook.currentPageIndex}
         onAddPage={canvasHook.addPage}
@@ -171,26 +158,23 @@ export function Board() {
         onRenamePage={canvasHook.renamePage}
       />
 
-      {/* Płótno (Wycentrowane) */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100%', 
-        paddingTop: '60px', 
-        overflow: 'auto' 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100%',
+        paddingTop: '60px',
+        overflow: 'auto'
       }}>
         <div style={{ boxShadow: '0 10px 30px rgba(0,0,0,0.1)', background: 'white' }}>
           <Canvas canvasRef={canvasHook.canvasRef} />
         </div>
       </div>
 
-      {/* Nakładki UI */}
       <CursorOverlay cursors={Object.values(remoteCursors)} currentPageId={canvasHook.getCurrentPageId()} />
       <UsersPanel users={users} currentUsername={username} />
       <SharePanel sessionId={sessionId} />
 
-      {/* System powiadomień */}
       {notification && (
         <div style={{
           position: 'fixed',
