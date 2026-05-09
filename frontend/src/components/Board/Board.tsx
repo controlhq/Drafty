@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useCanvas, Tool } from '../../hooks/useCanvas';
-import { useSocket, RemoteCursor, UserInfo } from '../../hooks/useSocket';
+import { useSocket, RemoteCursor, UserInfo, SessionJoinedPayload, PageInfo } from '../../hooks/useSocket';
 import { Canvas } from './Canvas';
 import { Toolbar } from './Toolbar';
 import { CursorOverlay } from './CursorOverlay';
@@ -36,15 +36,10 @@ export function Board() {
 
   // --- SOCKET CALLBACKS ---
 
-  const handleSessionJoined = useCallback(({ users: sessionUsers, canvasObjects, pages }: {
-    user: UserInfo;
-    users: UserInfo[];
-    canvasObjects: Record<string, Record<string, object>>;
-    pages: Array<{ id: string; name: string }>;
-  }) => {
+  const handleSessionJoined = useCallback(({ users: sessionUsers, canvasObjects, pages }: SessionJoinedPayload) => {
     setConnected(true);
     setUsers(sessionUsers);
-    canvasHookRef.current?.loadCanvasState(canvasObjects, pages);
+    canvasHookRef.current?.loadCanvasState(canvasObjects as Record<string, Record<string, object>>, pages);
   }, []);
 
   const handleObjectAdded = useCallback((pageId: string, objectId: string, fabricObject: object) => {
@@ -125,14 +120,14 @@ export function Board() {
   });
 
   const canvasHook = useCanvas({
-    onObjectAdded: (pageId, objectId, fabricObject) => emitObjectAdded(pageId, objectId, fabricObject),
-    onObjectModified: (pageId, objectId, fabricObject) => emitObjectModified(pageId, objectId, fabricObject),
+    onObjectAdded: (pageId: string, objectId: string, fabricObject: object) => emitObjectAdded(pageId, objectId, fabricObject),
+    onObjectModified: (pageId: string, objectId: string, fabricObject: object) => emitObjectModified(pageId, objectId, fabricObject),
     // Undo emituje object-removed — serwer rozgłosi do wszystkich
-    onObjectRemoved: (pageId, objectId) => emitObjectRemoved(pageId, objectId),
-    onCursorMove: (pageId, x, y) => emitCursorMove(pageId, x, y),
-    onPageAdded: (page) => emitPageAdded(page),
-    onPageDeleted: (pageId) => emitPageDeleted(pageId),
-    onPageRenamed: (pageId, name) => emitPageRenamed(pageId, name),
+    onObjectRemoved: (pageId: string, objectId: string) => emitObjectRemoved(pageId, objectId),
+    onCursorMove: (pageId: string, x: number, y: number) => emitCursorMove(pageId, x, y),
+    onPageAdded: (page: PageInfo) => emitPageAdded(page),
+    onPageDeleted: (pageId: string) => emitPageDeleted(pageId),
+    onPageRenamed: (pageId: string, name: string) => emitPageRenamed(pageId, name),
   });
 
   useEffect(() => {
