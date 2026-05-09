@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useCanvas, Tool } from '../../hooks/useCanvas';
-import { useSocket, RemoteCursor, UserInfo, SessionJoinedPayload } from '../../hooks/useSocket';
+import { useSocket, RemoteCursor, UserInfo } from '../../hooks/useSocket';
 import { Canvas } from './Canvas';
 import { Toolbar } from './Toolbar';
 import { CursorOverlay } from './CursorOverlay';
@@ -14,6 +14,7 @@ export function Board() {
   const navigate = useNavigate();
   const username = searchParams.get('username') || 'Anonim';
 
+  // --- STANY UI ---
   const [currentTool, setCurrentTool] = useState<Tool>('pen');
   const [brushSize, setBrushSizeState] = useState(3);
   const [users, setUsers] = useState<UserInfo[]>([]);
@@ -26,16 +27,24 @@ export function Board() {
 
   const applyRemoteRef = useRef<((pageId: string, id: string, obj: object) => void) | null>(null);
   const removeRemoteRef = useRef<((pageId: string, id: string) => void) | null>(null);
+  const canvasHookRef = useRef<ReturnType<typeof useCanvas> | null>(null);
 
   const showNotification = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleSessionJoined = useCallback(({ users: sessionUsers, canvasObjects }: SessionJoinedPayload) => {
+  // --- SOCKET CALLBACKS ---
+
+  const handleSessionJoined = useCallback(({ users: sessionUsers, canvasObjects, pages }: {
+    user: UserInfo;
+    users: UserInfo[];
+    canvasObjects: Record<string, Record<string, object>>;
+    pages: Array<{ id: string; name: string }>;
+  }) => {
     setConnected(true);
     setUsers(sessionUsers);
-    canvasHook.loadCanvasState(canvasObjects);
+    canvasHookRef.current?.loadCanvasState(canvasObjects, pages);
   }, []);
 
   const handleObjectAdded = useCallback((pageId: string, objectId: string, fabricObject: object) => {
@@ -72,27 +81,62 @@ export function Board() {
     showNotification(`${uname} opuścił tablicę`);
   }, []);
 
-  const { emitObjectAdded, emitObjectModified, emitClear, emitCursorMove } = useSocket({
+  const handlePageAdded = useCallback((page: { id: string; name: string }) => {
+    canvasHookRef.current?.addRemotePage(page);
+    showNotification(`Dodano nową stronę: ${page.name}`);
+  }, []);
+
+  const handlePageDeleted = useCallback((pageId: string) => {
+    canvasHookRef.current?.deleteRemotePage(pageId);
+  }, []);
+
+  const handlePageRenamed = useCallback((pageId: string, name: string) => {
+    canvasHookRef.current?.renameRemotePage(pageId, name);
+  }, []);
+
+  // --- HOOKS ---
+  const {
+    emitObjectAdded,
+    emitObjectModified,
+    emitObjectRemoved,
+    emitClear,
+    emitCursorMove,
+    emitPageAdded,
+    emitPageDeleted,
+    emitPageRenamed,
+  } = useSocket({
     sessionId: sessionId!,
     username,
     onSessionJoined: handleSessionJoined,
     onObjectAdded: handleObjectAdded,
     onObjectModified: handleObjectModified,
     onObjectRemoved: handleObjectRemoved,
-    onCanvasClear: (pageId: string) => {
-      canvasHook.clearPageObjects(pageId);
+    onCanvasClear: (pageId) => {
+      canvasHookRef.current?.clearPageObjects(pageId);
     },
     onCursorMove: handleCursorMove,
     onUserJoined: handleUserJoined,
     onUserLeft: handleUserLeft,
     onLatencyUpdate: setLatency,
     onE2ELatencyUpdate: setE2ELatency,
+    onPageAdded: handlePageAdded,
+    onPageDeleted: handlePageDeleted,
+    onPageRenamed: handlePageRenamed,
   });
 
   const canvasHook = useCanvas({
-    onObjectAdded: (pageId: string, objectId: string, fabricObject: object) => emitObjectAdded(pageId, objectId, fabricObject),
-    onObjectModified: (pageId: string, objectId: string, fabricObject: object) => emitObjectModified(pageId, objectId, fabricObject),
-    onCursorMove: (pageId: string, x: number, y: number) => emitCursorMove(pageId, x, y),
+    onObjectAdded: (pageId, objectId, fabricObject) => emitObjectAdded(pageId, objectId, fabricObject),
+    onObjectModified: (pageId, objectId, fabricObject) => emitObjectModified(pageId, objectId, fabricObject),
+    // Undo emituje object-removed — serwer rozgłosi do wszystkich
+    onObjectRemoved: (pageId, objectId) => emitObjectRemoved(pageId, objectId),
+    onCursorMove: (pageId, x, y) => emitCursorMove(pageId, x, y),
+    onPageAdded: (page) => emitPageAdded(page),
+    onPageDeleted: (pageId) => emitPageDeleted(pageId),
+    onPageRenamed: (pageId, name) => emitPageRenamed(pageId, name),
+  });
+
+  useEffect(() => {
+    canvasHookRef.current = canvasHook;
   });
 
   useEffect(() => {
@@ -100,6 +144,7 @@ export function Board() {
     removeRemoteRef.current = canvasHook.removeRemoteObject;
   }, [canvasHook.applyRemoteObject, canvasHook.removeRemoteObject]);
 
+  // --- HANDLERY UI ---
   const handleToolChange = (tool: Tool) => {
     setCurrentTool(tool);
     canvasHook.setTool(tool);
@@ -134,67 +179,67 @@ export function Board() {
   }
 
   return (
-    <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden', background: '#f3f4f6' }}>
-      <Toolbar
-        currentTool={currentTool}
-        onToolChange={handleToolChange}
-        brushSize={brushSize}
-        onBrushSizeChange={handleBrushSizeChange}
-        currentColor={canvasHook.currentColor}
-        onColorChange={canvasHook.setColor}
-        onClear={handleClearCanvas}
-        onUndo={canvasHook.undo}
-        onExportPDF={handleExportPDF}
-        isExporting={isExporting}
-        connected={connected}
-        username={username}
-        latency={latency}
-        e2eLatency={e2eLatency}
-        pages={canvasHook.pages}
-        currentPageIndex={canvasHook.currentPageIndex}
-        onAddPage={canvasHook.addPage}
-        onSwitchToPage={canvasHook.switchToPage}
-        onDeletePage={canvasHook.deletePage}
-        onRenamePage={canvasHook.renamePage}
-      />
+      <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden', background: '#f3f4f6' }}>
+        <Toolbar
+            currentTool={currentTool}
+            onToolChange={handleToolChange}
+            brushSize={brushSize}
+            onBrushSizeChange={handleBrushSizeChange}
+            currentColor={canvasHook.currentColor}
+            onColorChange={canvasHook.setColor}
+            onClear={handleClearCanvas}
+            onUndo={canvasHook.undo}
+            onExportPDF={handleExportPDF}
+            isExporting={isExporting}
+            connected={connected}
+            username={username}
+            latency={latency}
+            e2eLatency={e2eLatency}
+            pages={canvasHook.pages}
+            currentPageIndex={canvasHook.currentPageIndex}
+            onAddPage={canvasHook.addPage}
+            onSwitchToPage={canvasHook.switchToPage}
+            onDeletePage={canvasHook.deletePage}
+            onRenamePage={canvasHook.renamePage}
+        />
 
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100%',
-        paddingTop: '60px',
-        overflow: 'auto'
-      }}>
-        <div style={{ boxShadow: '0 10px 30px rgba(0,0,0,0.1)', background: 'white' }}>
-          <Canvas canvasRef={canvasHook.canvasRef} />
-        </div>
-      </div>
-
-      <CursorOverlay cursors={Object.values(remoteCursors)} currentPageId={canvasHook.getCurrentPageId()} />
-      <UsersPanel users={users} currentUsername={username} />
-      <SharePanel sessionId={sessionId} />
-
-      {notification && (
         <div style={{
-          position: 'fixed',
-          bottom: '24px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'rgba(30,27,75,0.95)',
-          color: '#ffffff',
-          padding: '10px 20px',
-          borderRadius: '100px',
-          fontSize: '14px',
-          fontWeight: 500,
-          border: '1px solid rgba(99,102,241,0.4)',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-          zIndex: 1000,
-          pointerEvents: 'none',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          height: '100%',
+          paddingTop: '60px',
+          overflow: 'auto',
         }}>
-          {notification}
+          <div style={{ boxShadow: '0 10px 30px rgba(0,0,0,0.1)', background: 'white' }}>
+            <Canvas canvasRef={canvasHook.canvasRef} />
+          </div>
         </div>
-      )}
-    </div>
+
+        <CursorOverlay cursors={Object.values(remoteCursors)} currentPageId={canvasHook.getCurrentPageId()} />
+        <UsersPanel users={users} currentUsername={username} />
+        <SharePanel sessionId={sessionId} />
+
+        {notification && (
+            <div style={{
+              position: 'fixed',
+              bottom: '24px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(30,27,75,0.95)',
+              color: '#ffffff',
+              padding: '10px 20px',
+              borderRadius: '100px',
+              fontSize: '14px',
+              fontWeight: 500,
+              border: '1px solid rgba(99,102,241,0.4)',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+              zIndex: 1000,
+              pointerEvents: 'none',
+            }}>
+              {notification}
+            </div>
+        )}
+      </div>
   );
 }

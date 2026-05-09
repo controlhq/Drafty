@@ -6,7 +6,6 @@ export type Tool = 'pen' | 'eraser';
 export const A4_WIDTH = 794;
 export const A4_HEIGHT = 1123;
 const CUSTOM_ID_KEY = 'customId';
-const MAX_HISTORY = 50;
 
 export interface PageInfo {
   id: string;
@@ -14,17 +13,18 @@ export interface PageInfo {
   objects: Record<string, any>;
 }
 
-type HistorySnapshot = Record<string, any>;
-
 export function useCanvas(options: any = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvas = useRef<fabric.Canvas | null>(null);
   const isApplyingRemote = useRef(false);
-  
+
+  // --- GŁÓWNY MAGAZYN DANYCH ---
   const pagesRef = useRef<PageInfo[]>([{ id: uuidv4(), name: 'Strona 1', objects: {} }]);
-  const historyRef = useRef<Map<string, HistorySnapshot[]>>(new Map());
-  const isUndoingRef = useRef(false);
-  
+
+  // --- HISTORIA COFANIA ---
+  // Stos ID własnych obiektów per strona. Cofnięcie usuwa ostatni obiekt u wszystkich.
+  const myObjectsHistory = useRef<Map<string, string[]>>(new Map());
+
   const [pages, setPagesState] = useState<PageInfo[]>(pagesRef.current);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [currentColor, setCurrentColorState] = useState('#000000');
@@ -37,20 +37,15 @@ export function useCanvas(options: any = {}) {
     currentPageIndexRef.current = currentPageIndex;
   }, [currentPageIndex]);
 
-  const getHistory = useCallback((pageId: string): HistorySnapshot[] => {
-    if (!historyRef.current.has(pageId)) {
-      historyRef.current.set(pageId, []);
+  // --- HELPER: stos historii dla danej strony ---
+  const getMyHistory = (pageId: string): string[] => {
+    if (!myObjectsHistory.current.has(pageId)) {
+      myObjectsHistory.current.set(pageId, []);
     }
-    return historyRef.current.get(pageId)!;
-  }, []);
+    return myObjectsHistory.current.get(pageId)!;
+  };
 
-  const pushHistory = useCallback((pageId: string, snapshot: HistorySnapshot) => {
-    const history = getHistory(pageId);
-    history.push(snapshot);
-    if (history.length > MAX_HISTORY) {
-      history.shift();
-    }
-  }, [getHistory]);
+  // --- LOGIKA WEWNĘTRZNA ---
 
   const getCanvasData = useCallback(() => {
     if (!canvas.current) return {};
@@ -86,9 +81,11 @@ export function useCanvas(options: any = {}) {
         });
         c.renderAll();
         isApplyingRemote.current = false;
-      });
+      }, 'fabric');
     });
   }, []);
+
+  // --- INICJALIZACJA PŁÓTNA ---
 
   useEffect(() => {
     if (!canvasRef.current || canvas.current) return;
@@ -104,18 +101,27 @@ export function useCanvas(options: any = {}) {
     canvas.current = c;
 
     c.on('path:created', (e: any) => {
-      if (isApplyingRemote.current || isUndoingRef.current) return;
+      if (isApplyingRemote.current) return;
       const id = uuidv4();
       e.path.customId = id;
       e.path.selectable = false;
-      
+
       const activePageId = pagesRef.current[currentPageIndexRef.current].id;
-      const snapshot = getCanvasData();
-      pushHistory(activePageId, snapshot);
+
+      // Zapamiętaj ID własnego obiektu do późniejszego cofnięcia
+      getMyHistory(activePageId).push(id);
 
       optionsRef.current.onObjectAdded?.(activePageId, id, e.path.toJSON([CUSTOM_ID_KEY]));
     });
 
+    // Emisja kursora
+    c.on('mouse:move', (e: any) => {
+      const pointer = c.getPointer(e.e);
+      const activePageId = pagesRef.current[currentPageIndexRef.current].id;
+      optionsRef.current.onCursorMove?.(activePageId, pointer.x, pointer.y);
+    });
+
+    // Ctrl+Z / Cmd+Z
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
@@ -133,81 +139,128 @@ export function useCanvas(options: any = {}) {
     };
   }, []);
 
+  // --- COFANIE (UNDO) — collaborative ---
+  // Usuwa ostatni własny obiekt lokalnie ORAZ emituje canvas:object-removed do serwera,
+  // dzięki czemu znika u wszystkich połączonych użytkowników.
+
   const undoRef = useRef<(() => void) | null>(null);
 
   const undo = useCallback(() => {
     const activePageId = pagesRef.current[currentPageIndexRef.current].id;
-    const history = getHistory(activePageId);
-
+    const history = getMyHistory(activePageId);
     if (history.length === 0) return;
 
-    isUndoingRef.current = true;
-    history.pop();
+    const lastId = history.pop()!;
 
-    const prevSnapshot = history.length > 0 ? history[history.length - 1] : {};
-    pagesRef.current[currentPageIndexRef.current].objects = { ...prevSnapshot };
-    loadDataToCanvas(prevSnapshot);
+    // Usuń lokalnie z canvasu
+    if (canvas.current) {
+      const obj = canvas.current.getObjects().find((o: any) => o.customId === lastId);
+      if (obj) {
+        canvas.current.remove(obj);
+        canvas.current.renderAll();
+      }
+    }
 
-    setTimeout(() => {
-      isUndoingRef.current = false;
-    }, 50);
-  }, [getHistory, loadDataToCanvas]);
+    // Usuń z lokalnego magazynu danych strony
+    const page = pagesRef.current.find(p => p.id === activePageId);
+    if (page) delete page.objects[lastId];
+
+    // Poinformuj serwer → serwer rozgłosi do pozostałych użytkowników
+    optionsRef.current.onObjectRemoved?.(activePageId, lastId);
+  }, []);
 
   useEffect(() => {
     undoRef.current = undo;
   }, [undo]);
 
+  // --- ZARZĄDZANIE STRONAMI ---
+
   const switchToPage = useCallback((newIndex: number) => {
     if (!canvas.current || newIndex === currentPageIndex) return;
-
     pagesRef.current[currentPageIndex].objects = getCanvasData();
     setCurrentPageIndex(newIndex);
-    
-    const nextData = pagesRef.current[newIndex].objects || {};
-    loadDataToCanvas(nextData);
+    loadDataToCanvas(pagesRef.current[newIndex].objects || {});
   }, [currentPageIndex, getCanvasData, loadDataToCanvas]);
 
   const addPage = useCallback(() => {
     pagesRef.current[currentPageIndex].objects = getCanvasData();
 
-    const newPage: PageInfo = { 
-      id: uuidv4(), 
-      name: `Strona ${pagesRef.current.length + 1}`, 
-      objects: {} 
+    const newPage: PageInfo = {
+      id: uuidv4(),
+      name: `Strona ${pagesRef.current.length + 1}`,
+      objects: {},
     };
-    
+
     pagesRef.current.push(newPage);
     setPagesState([...pagesRef.current]);
     switchToPage(pagesRef.current.length - 1);
+
+    optionsRef.current.onPageAdded?.({ id: newPage.id, name: newPage.name });
   }, [currentPageIndex, getCanvasData, switchToPage]);
 
   const deletePage = useCallback((index: number) => {
     if (pagesRef.current.length <= 1) return;
 
-    historyRef.current.delete(pagesRef.current[index].id);
+    const deletedPageId = pagesRef.current[index].id;
+    myObjectsHistory.current.delete(deletedPageId);
     pagesRef.current.splice(index, 1);
-    
+
     let nextIndex = currentPageIndex;
-    if (nextIndex >= pagesRef.current.length) {
-      nextIndex = pagesRef.current.length - 1;
-    }
+    if (nextIndex >= pagesRef.current.length) nextIndex = pagesRef.current.length - 1;
 
     setPagesState([...pagesRef.current]);
     setCurrentPageIndex(nextIndex);
     loadDataToCanvas(pagesRef.current[nextIndex].objects || {});
+
+    optionsRef.current.onPageDeleted?.(deletedPageId);
   }, [currentPageIndex, loadDataToCanvas]);
 
   const renamePage = useCallback((index: number, newName: string) => {
     if (!newName.trim()) return;
+    const pageId = pagesRef.current[index].id;
     pagesRef.current[index].name = newName;
+    setPagesState([...pagesRef.current]);
+    optionsRef.current.onPageRenamed?.(pageId, newName);
+  }, []);
+
+  // --- ZDALNE OPERACJE NA STRONACH ---
+
+  const addRemotePage = useCallback((page: { id: string; name: string }) => {
+    if (pagesRef.current.find(p => p.id === page.id)) return;
+    pagesRef.current.push({ id: page.id, name: page.name, objects: {} });
     setPagesState([...pagesRef.current]);
   }, []);
 
-  const applyRemoteObject = useCallback((pageId: string, objectId: string, fabricJSON: any) => {
+  const deleteRemotePage = useCallback((pageId: string) => {
+    const index = pagesRef.current.findIndex(p => p.id === pageId);
+    if (index === -1) return;
+
+    myObjectsHistory.current.delete(pageId);
+    pagesRef.current.splice(index, 1);
+
+    let nextIndex = currentPageIndexRef.current;
+    if (nextIndex >= pagesRef.current.length) nextIndex = pagesRef.current.length - 1;
+
+    setPagesState([...pagesRef.current]);
+    setCurrentPageIndex(nextIndex);
+    if (pagesRef.current[nextIndex]) {
+      loadDataToCanvas(pagesRef.current[nextIndex].objects || {});
+    }
+  }, [loadDataToCanvas]);
+
+  const renameRemotePage = useCallback((pageId: string, name: string) => {
     const page = pagesRef.current.find(p => p.id === pageId);
     if (page) {
-      page.objects[objectId] = fabricJSON;
+      page.name = name;
+      setPagesState([...pagesRef.current]);
     }
+  }, []);
+
+  // --- OBSŁUGA ZDARZEŃ ZDALNYCH (rysowanie) ---
+
+  const applyRemoteObject = useCallback((pageId: string, objectId: string, fabricJSON: any) => {
+    const page = pagesRef.current.find(p => p.id === pageId);
+    if (page) page.objects[objectId] = fabricJSON;
 
     if (pageId === pagesRef.current[currentPageIndexRef.current].id && canvas.current) {
       isApplyingRemote.current = true;
@@ -219,15 +272,13 @@ export function useCanvas(options: any = {}) {
         canvas.current?.add(obj);
         canvas.current?.renderAll();
         isApplyingRemote.current = false;
-      });
+      }, 'fabric');
     }
   }, []);
 
   const removeRemoteObject = useCallback((pageId: string, objectId: string) => {
     const page = pagesRef.current.find(p => p.id === pageId);
-    if (page) {
-      delete page.objects[objectId];
-    }
+    if (page) delete page.objects[objectId];
 
     if (pageId === pagesRef.current[currentPageIndexRef.current].id && canvas.current) {
       const obj = canvas.current.getObjects().find((o: any) => o.customId === objectId);
@@ -241,27 +292,20 @@ export function useCanvas(options: any = {}) {
   const clearPageObjects = useCallback((pageId: string) => {
     const page = pagesRef.current.find(p => p.id === pageId);
     if (page) page.objects = {};
+    myObjectsHistory.current.set(pageId, []);
 
-    historyRef.current.set(pageId, []);
-    
     if (pageId === pagesRef.current[currentPageIndexRef.current].id) {
-      canvas.current?.clear();
-      canvas.current?.setBackgroundColor('#ffffff', () => {});
-      canvas.current?.renderAll();
+      canvas.current?.clear().setBackgroundColor('#ffffff').renderAll();
     }
   }, []);
 
+  // --- EKSPORT DO PDF ---
+
   const exportToPDF = useCallback(async () => {
     const { jsPDF } = await import('jspdf');
-
     pagesRef.current[currentPageIndexRef.current].objects = getCanvasData();
 
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    });
-
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const PDF_W = 210;
     const PDF_H = 297;
 
@@ -296,17 +340,18 @@ export function useCanvas(options: any = {}) {
             tmpFabric.add(obj);
           });
           tmpFabric.renderAll();
-
           const dataUrl = tmpFabric.toDataURL({ format: 'jpeg', quality: 0.95 });
           pdf.addImage(dataUrl, 'JPEG', 0, 0, PDF_W, PDF_H);
           tmpFabric.dispose();
           resolve();
-        });
+        }, 'fabric');
       });
     }
 
     pdf.save('drafty-eksport.pdf');
   }, [getCanvasData]);
+
+  // --- EKSPORT METOD ---
 
   return {
     canvasRef,
@@ -328,10 +373,8 @@ export function useCanvas(options: any = {}) {
     },
     clearCanvas: () => {
       const activePageId = pagesRef.current[currentPageIndexRef.current].id;
-      historyRef.current.set(activePageId, []);
-      canvas.current?.clear();
-      canvas.current?.setBackgroundColor('#ffffff', () => {});
-      canvas.current?.renderAll();
+      myObjectsHistory.current.set(activePageId, []);
+      canvas.current?.clear().setBackgroundColor('#ffffff').renderAll();
     },
     undo,
     exportToPDF,
@@ -339,22 +382,36 @@ export function useCanvas(options: any = {}) {
     switchToPage,
     deletePage,
     renamePage,
+    addRemotePage,
+    deleteRemotePage,
+    renameRemotePage,
     applyRemoteObject,
     removeRemoteObject,
     clearPageObjects,
     getCurrentPageId: () => pagesRef.current[currentPageIndex].id,
-    loadCanvasState: (allState: any) => {
-      const serverPages = Object.keys(allState).map((pid, idx) => ({
-        id: pid,
-        name: `Strona ${idx + 1}`,
-        objects: allState[pid]
-      }));
+    loadCanvasState: (allState: any, serverPages?: Array<{ id: string; name: string }>) => {
+      let newPages: PageInfo[];
 
-      if (serverPages.length > 0) {
-        pagesRef.current = serverPages;
+      if (serverPages && serverPages.length > 0) {
+        newPages = serverPages.map(p => ({
+          id: p.id,
+          name: p.name,
+          objects: allState[p.id] || {},
+        }));
+      } else {
+        newPages = Object.keys(allState).map((pid, idx) => ({
+          id: pid,
+          name: `Strona ${idx + 1}`,
+          objects: allState[pid],
+        }));
+      }
+
+      if (newPages.length > 0) {
+        pagesRef.current = newPages;
         setPagesState([...pagesRef.current]);
+        setCurrentPageIndex(0);
         loadDataToCanvas(pagesRef.current[0].objects);
       }
-    }
+    },
   };
 }

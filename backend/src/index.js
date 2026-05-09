@@ -16,40 +16,41 @@ const io = new Server(server, {
     },
 });
 
-// Mapa sesji: sessionId -> { users: Map<socketId, userInfo>, canvasState: { pageId: { objectId: fabricObject } } }
+// Mapa sesji: sessionId -> { users: Map<socketId, userInfo>, canvasState, pages }
 const sessions = new Map();
 
 function getOrCreateSession(sessionId) {
     if (!sessions.has(sessionId)) {
         sessions.set(sessionId, {
             users: new Map(),
-            // Przechowujemy stan canvas pogrupowany po stronach
             canvasState: {}, // pageId -> { objectId: fabricObject }
+            pages: [],       // [{ id, name }] — lista stron w kolejności
         });
     }
     return sessions.get(sessionId);
 }
 
-// REST: sprawdź ilu userów jest w sesji
+// REST: sprawdź stan sesji
 app.get('/api/session/:sessionId', (req, res) => {
     const session = sessions.get(req.params.sessionId);
     if (!session) return res.json({ users: [], objectCount: 0 });
-    const totalObjects = Object.values(session.canvasState).reduce((sum, pageObjects) => sum + Object.keys(pageObjects).length, 0);
+    const totalObjects = Object.values(session.canvasState).reduce(
+        (sum, pageObjects) => sum + Object.keys(pageObjects).length, 0
+    );
     res.json({
         users: Array.from(session.users.values()),
         objectCount: totalObjects,
     });
 });
 
-// Kolory dla kursorów — każdy user dostaje inny
 const CURSOR_COLORS = [
-    '#ef4444', // czerwony
-    '#3b82f6', // niebieski
-    '#22c55e', // zielony
-    '#f59e0b', // pomarańczowy
-    '#a855f7', // fioletowy
-    '#ec4899', // różowy
-    '#14b8a6', // turkusowy
+    '#ef4444',
+    '#3b82f6',
+    '#22c55e',
+    '#f59e0b',
+    '#a855f7',
+    '#ec4899',
+    '#14b8a6',
 ];
 
 io.on('connection', (socket) => {
@@ -61,7 +62,6 @@ io.on('connection', (socket) => {
         currentSessionId = sessionId;
         const session = getOrCreateSession(sessionId);
 
-        // Przydziel kolor kursora
         const usedColors = new Set(
             Array.from(session.users.values()).map((u) => u.cursorColor)
         );
@@ -79,39 +79,36 @@ io.on('connection', (socket) => {
         session.users.set(socket.id, currentUser);
         socket.join(sessionId);
 
-        // Wyślij nowemu userowi pełny stan canvas
+        // Wyślij TYLKO nowemu użytkownikowi pełny stan
         socket.emit('session-joined', {
             user: currentUser,
             users: Array.from(session.users.values()),
             canvasObjects: session.canvasState,
+            pages: session.pages, // <-- lista stron z nazwami
         });
 
-        // Poinformuj innych o nowym użytkowniku
+        // Pozostałym tylko info o nowym userze
         socket.to(sessionId).emit('user-joined', currentUser);
 
         console.log(`[${sessionId}] ${username} dołączył (${socket.id})`);
     });
 
-    // --- Rysowanie: nowy obiekt dodany ---
+    // --- Rysowanie: nowy obiekt ---
     socket.on('canvas:object-added', ({ pageId, objectId, fabricObject }) => {
         if (!currentSessionId) return;
         const session = sessions.get(currentSessionId);
         if (!session) return;
 
-        // Upewnij się, że strona istnieje
         if (!session.canvasState[pageId]) {
             session.canvasState[pageId] = {};
         }
-
-        // Zapisz obiekt w stanie sesji
         session.canvasState[pageId][objectId] = fabricObject;
 
+        // Rozgłoś do pozostałych (bez senderId/serverTs żeby frontend się nie krzaczył)
         socket.to(currentSessionId).emit('canvas:object-added', {
             pageId,
             objectId,
             fabricObject,
-            senderId: socket.id,
-            serverTs: Date.now(),
         });
     });
 
@@ -129,8 +126,6 @@ io.on('connection', (socket) => {
             pageId,
             objectId,
             fabricObject,
-            senderId: socket.id,
-            serverTs: Date.now(),
         });
     });
 
@@ -147,7 +142,6 @@ io.on('connection', (socket) => {
         socket.to(currentSessionId).emit('canvas:object-removed', {
             pageId,
             objectId,
-            senderId: socket.id,
         });
     });
 
@@ -161,19 +155,59 @@ io.on('connection', (socket) => {
             session.canvasState[pageId] = {};
         }
 
-        socket.to(currentSessionId).emit('canvas:clear', {
-            pageId,
-            senderId: socket.id,
-        });
+        socket.to(currentSessionId).emit('canvas:clear', { pageId });
     });
 
-    // --- Ping/pong do pomiaru latency (NTP-style: zwracamy też serverTs do obliczenia clock offset) ---
+    // --- SYNCHRONIZACJA STRON ---
+
+    // Nowa strona dodana
+    socket.on('page:added', ({ page }) => {
+        if (!currentSessionId) return;
+        const session = sessions.get(currentSessionId);
+        if (!session) return;
+
+        // Zapisz stronę w sesji jeśli jeszcze jej nie ma
+        if (!session.pages.find(p => p.id === page.id)) {
+            session.pages.push({ id: page.id, name: page.name });
+        }
+        if (!session.canvasState[page.id]) {
+            session.canvasState[page.id] = {};
+        }
+
+        socket.to(currentSessionId).emit('page:added', { page });
+    });
+
+    // Strona usunięta
+    socket.on('page:deleted', ({ pageId }) => {
+        if (!currentSessionId) return;
+        const session = sessions.get(currentSessionId);
+        if (!session) return;
+
+        session.pages = session.pages.filter(p => p.id !== pageId);
+        delete session.canvasState[pageId];
+
+        socket.to(currentSessionId).emit('page:deleted', { pageId });
+    });
+
+    // Strona przemianowana
+    socket.on('page:renamed', ({ pageId, name }) => {
+        if (!currentSessionId) return;
+        const session = sessions.get(currentSessionId);
+        if (!session) return;
+
+        const page = session.pages.find(p => p.id === pageId);
+        if (page) page.name = name;
+
+        socket.to(currentSessionId).emit('page:renamed', { pageId, name });
+    });
+
+    // --- Ping/pong do pomiaru latency ---
     socket.on('ping-latency', (clientTs) => {
         socket.emit('pong-latency', { clientTs, serverTs: Date.now() });
     });
 
-    // --- Pozycja kursora ---
-    socket.on('cursor:move', ({ x, y }) => {
+    // --- Pozycja kursora (z pageId!) ---
+    socket.on('cursor:move', ({ pageId, x, y }) => {
         if (!currentSessionId || !currentUser) return;
         currentUser.cursor = { x, y };
 
@@ -181,6 +215,7 @@ io.on('connection', (socket) => {
             socketId: socket.id,
             username: currentUser.username,
             cursorColor: currentUser.cursorColor,
+            pageId, // <-- przekazujemy dalej
             x,
             y,
         });
@@ -199,20 +234,17 @@ io.on('connection', (socket) => {
             username: currentUser?.username,
         });
 
-        // Usuń pustą sesję po 30 minutach nieaktywności
         if (session.users.size === 0) {
             setTimeout(() => {
                 const s = sessions.get(currentSessionId);
                 if (s && s.users.size === 0) {
                     sessions.delete(currentSessionId);
-                    console.log(`[${currentSessionId}] Sesja usunięta (brak użytkowników)`);
+                    console.log(`[${currentSessionId}] Sesja usunięta`);
                 }
             }, 30 * 60 * 1000);
         }
 
-        console.log(
-            `[${currentSessionId}] ${currentUser?.username} odłączył się`
-        );
+        console.log(`[${currentSessionId}] ${currentUser?.username} odłączył się`);
     });
 });
 
