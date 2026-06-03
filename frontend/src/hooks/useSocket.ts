@@ -5,6 +5,7 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 
 export interface UserInfo {
     socketId: string;
+    authorId: string;  // stały id do identyfikacji obiektów na canvasie
     username: string;
     cursorColor: string;
 }
@@ -34,8 +35,9 @@ interface UseSocketOptions {
     sessionId: string;
     username: string;
     onSessionJoined: (payload: SessionJoinedPayload) => void;
-    onObjectAdded: (pageId: string, objectId: string, fabricObject: object) => void;
-    onObjectModified: (pageId: string, objectId: string, fabricObject: object) => void;
+    // authorId added to object callbacks
+    onObjectAdded: (pageId: string, objectId: string, fabricObject: object, authorId: string) => void;
+    onObjectModified: (pageId: string, objectId: string, fabricObject: object, authorId: string) => void;
     onObjectRemoved: (pageId: string, objectId: string) => void;
     onCanvasClear: (pageId: string) => void;
     onCursorMove: (cursor: RemoteCursor) => void;
@@ -43,10 +45,11 @@ interface UseSocketOptions {
     onUserLeft: (socketId: string, username: string) => void;
     onLatencyUpdate?: (latency: number) => void;
     onE2ELatencyUpdate?: (latency: number) => void;
-    // Synchronizacja stron
     onPageAdded?: (page: PageInfo) => void;
     onPageDeleted?: (pageId: string) => void;
     onPageRenamed?: (pageId: string, name: string) => void;
+    // callback to expose own socketId to canvas hook
+    onSocketIdReady?: (socketId: string) => void;
 }
 
 export function useSocket(options: UseSocketOptions) {
@@ -60,6 +63,7 @@ export function useSocket(options: UseSocketOptions) {
         socketRef.current = socket;
 
         socket.on('connect', () => {
+            optionsRef.current.onSocketIdReady?.(socket.id!);
             socket.emit('join-session', {
                 sessionId: options.sessionId,
                 username: options.username,
@@ -70,24 +74,24 @@ export function useSocket(options: UseSocketOptions) {
             optionsRef.current.onSessionJoined(payload);
         });
 
-        socket.on('canvas:object-added', ({ pageId, objectId, fabricObject, serverTs }: {
-            pageId: string; objectId: string; fabricObject: object; serverTs?: number;
+        socket.on('canvas:object-added', ({ pageId, objectId, fabricObject, authorId, serverTs }: {
+            pageId: string; objectId: string; fabricObject: object; authorId: string; serverTs?: number;
         }) => {
             if (serverTs !== undefined) {
                 const e2e = Date.now() - clockOffsetRef.current - serverTs;
                 optionsRef.current.onE2ELatencyUpdate?.(Math.max(0, e2e));
             }
-            optionsRef.current.onObjectAdded(pageId, objectId, fabricObject);
+            optionsRef.current.onObjectAdded(pageId, objectId, fabricObject, authorId);
         });
 
-        socket.on('canvas:object-modified', ({ pageId, objectId, fabricObject, serverTs }: {
-            pageId: string; objectId: string; fabricObject: object; serverTs?: number;
+        socket.on('canvas:object-modified', ({ pageId, objectId, fabricObject, authorId, serverTs }: {
+            pageId: string; objectId: string; fabricObject: object; authorId: string; serverTs?: number;
         }) => {
             if (serverTs !== undefined) {
                 const e2e = Date.now() - clockOffsetRef.current - serverTs;
                 optionsRef.current.onE2ELatencyUpdate?.(Math.max(0, e2e));
             }
-            optionsRef.current.onObjectModified(pageId, objectId, fabricObject);
+            optionsRef.current.onObjectModified(pageId, objectId, fabricObject, authorId);
         });
 
         socket.on('canvas:object-removed', ({ pageId, objectId }: {
@@ -100,7 +104,6 @@ export function useSocket(options: UseSocketOptions) {
             optionsRef.current.onCanvasClear(pageId);
         });
 
-        // Kursor — teraz zawiera pageId z serwera
         socket.on('cursor:move', (cursor: RemoteCursor) => {
             optionsRef.current.onCursorMove(cursor);
         });
@@ -113,7 +116,6 @@ export function useSocket(options: UseSocketOptions) {
             optionsRef.current.onUserLeft(socketId, username);
         });
 
-        // Latency
         socket.on('pong-latency', ({ clientTs, serverTs }: { clientTs: number; serverTs: number }) => {
             const now = Date.now();
             const rtt = now - clientTs;
@@ -124,8 +126,6 @@ export function useSocket(options: UseSocketOptions) {
         const latencyInterval = setInterval(() => {
             socket.emit('ping-latency', Date.now());
         }, 3000);
-
-        // --- SYNCHRONIZACJA STRON ---
 
         socket.on('page:added', ({ page }: { page: PageInfo }) => {
             optionsRef.current.onPageAdded?.(page);
@@ -161,12 +161,10 @@ export function useSocket(options: UseSocketOptions) {
         socketRef.current?.emit('canvas:clear', { pageId });
     }, []);
 
-    // Kursor emitowany z pageId
     const emitCursorMove = useCallback((pageId: string, x: number, y: number) => {
         socketRef.current?.emit('cursor:move', { pageId, x, y });
     }, []);
 
-    // Emity synchronizacji stron
     const emitPageAdded = useCallback((page: PageInfo) => {
         socketRef.current?.emit('page:added', { page });
     }, []);
@@ -179,6 +177,10 @@ export function useSocket(options: UseSocketOptions) {
         socketRef.current?.emit('page:renamed', { pageId, name });
     }, []);
 
+    const getSocketId = useCallback(() => {
+        return socketRef.current?.id || null;
+    }, []);
+
     return {
         emitObjectAdded,
         emitObjectModified,
@@ -188,5 +190,6 @@ export function useSocket(options: UseSocketOptions) {
         emitPageAdded,
         emitPageDeleted,
         emitPageRenamed,
+        getSocketId,
     };
 }

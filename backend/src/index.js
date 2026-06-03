@@ -17,20 +17,20 @@ const io = new Server(server, {
 });
 
 // Mapa sesji: sessionId -> { users: Map<socketId, userInfo>, canvasState, pages }
+// canvasState: pageId -> { objectId: { fabricJSON, authorId } }
 const sessions = new Map();
 
 function getOrCreateSession(sessionId) {
     if (!sessions.has(sessionId)) {
         sessions.set(sessionId, {
             users: new Map(),
-            canvasState: {}, // pageId -> { objectId: fabricObject }
-            pages: [],       // [{ id, name }] — lista stron w kolejności
+            canvasState: {},
+            pages: [],
         });
     }
     return sessions.get(sessionId);
 }
 
-// REST: sprawdź stan sesji
 app.get('/api/session/:sessionId', (req, res) => {
     const session = sessions.get(req.params.sessionId);
     if (!session) return res.json({ users: [], objectCount: 0 });
@@ -57,7 +57,6 @@ io.on('connection', (socket) => {
     let currentSessionId = null;
     let currentUser = null;
 
-    // --- Dołączenie do sesji ---
     socket.on('join-session', ({ sessionId, username }) => {
         currentSessionId = sessionId;
         const session = getOrCreateSession(sessionId);
@@ -71,6 +70,7 @@ io.on('connection', (socket) => {
 
         currentUser = {
             socketId: socket.id,
+            authorId: username,  // stały identyfikator — username nie zmienia się po odświeżeniu
             username,
             cursorColor: color,
             cursor: { x: 0, y: 0 },
@@ -79,21 +79,20 @@ io.on('connection', (socket) => {
         session.users.set(socket.id, currentUser);
         socket.join(sessionId);
 
-        // Wyślij TYLKO nowemu użytkownikowi pełny stan
         socket.emit('session-joined', {
             user: currentUser,
             users: Array.from(session.users.values()),
             canvasObjects: session.canvasState,
-            pages: session.pages, // <-- lista stron z nazwami
+            pages: session.pages,
         });
 
-        // Pozostałym tylko info o nowym userze
         socket.to(sessionId).emit('user-joined', currentUser);
 
         console.log(`[${sessionId}] ${username} dołączył (${socket.id})`);
     });
 
     // --- Rysowanie: nowy obiekt ---
+    // authorId = socketId nadawcy, dołączane przez serwer — klient nie musi go podawać
     socket.on('canvas:object-added', ({ pageId, objectId, fabricObject }) => {
         if (!currentSessionId) return;
         const session = sessions.get(currentSessionId);
@@ -102,13 +101,17 @@ io.on('connection', (socket) => {
         if (!session.canvasState[pageId]) {
             session.canvasState[pageId] = {};
         }
-        session.canvasState[pageId][objectId] = fabricObject;
+        // Zapisz z authorId = socket.id
+        session.canvasState[pageId][objectId] = {
+            fabricJSON: fabricObject,
+            authorId: currentUser.authorId,
+        };
 
-        // Rozgłoś do pozostałych
         socket.to(currentSessionId).emit('canvas:object-added', {
             pageId,
             objectId,
             fabricObject,
+            authorId: currentUser.authorId,  // <-- username, stały po odświeżeniu
             serverTs: Date.now(),
         });
     });
@@ -119,14 +122,21 @@ io.on('connection', (socket) => {
         const session = sessions.get(currentSessionId);
         if (!session) return;
 
-        if (session.canvasState[pageId]) {
-            session.canvasState[pageId][objectId] = fabricObject;
+        if (session.canvasState[pageId]?.[objectId]) {
+            session.canvasState[pageId][objectId].fabricJSON = fabricObject;
+        } else {
+            if (!session.canvasState[pageId]) session.canvasState[pageId] = {};
+            session.canvasState[pageId][objectId] = {
+                fabricJSON: fabricObject,
+                authorId: currentUser.authorId,
+            };
         }
 
         socket.to(currentSessionId).emit('canvas:object-modified', {
             pageId,
             objectId,
             fabricObject,
+            authorId: currentUser.authorId,
             serverTs: Date.now(),
         });
     });
@@ -141,10 +151,7 @@ io.on('connection', (socket) => {
             delete session.canvasState[pageId][objectId];
         }
 
-        socket.to(currentSessionId).emit('canvas:object-removed', {
-            pageId,
-            objectId,
-        });
+        socket.to(currentSessionId).emit('canvas:object-removed', { pageId, objectId });
     });
 
     // --- Wyczyszczenie strony ---
@@ -162,13 +169,11 @@ io.on('connection', (socket) => {
 
     // --- SYNCHRONIZACJA STRON ---
 
-    // Nowa strona dodana
     socket.on('page:added', ({ page }) => {
         if (!currentSessionId) return;
         const session = sessions.get(currentSessionId);
         if (!session) return;
 
-        // Zapisz stronę w sesji jeśli jeszcze jej nie ma
         if (!session.pages.find(p => p.id === page.id)) {
             session.pages.push({ id: page.id, name: page.name });
         }
@@ -179,7 +184,6 @@ io.on('connection', (socket) => {
         socket.to(currentSessionId).emit('page:added', { page });
     });
 
-    // Strona usunięta
     socket.on('page:deleted', ({ pageId }) => {
         if (!currentSessionId) return;
         const session = sessions.get(currentSessionId);
@@ -191,7 +195,6 @@ io.on('connection', (socket) => {
         socket.to(currentSessionId).emit('page:deleted', { pageId });
     });
 
-    // Strona przemianowana
     socket.on('page:renamed', ({ pageId, name }) => {
         if (!currentSessionId) return;
         const session = sessions.get(currentSessionId);
@@ -203,12 +206,12 @@ io.on('connection', (socket) => {
         socket.to(currentSessionId).emit('page:renamed', { pageId, name });
     });
 
-    // --- Ping/pong do pomiaru latency ---
+    // --- Ping/pong ---
     socket.on('ping-latency', (clientTs) => {
         socket.emit('pong-latency', { clientTs, serverTs: Date.now() });
     });
 
-    // --- Pozycja kursora (z pageId!) ---
+    // --- Kursor ---
     socket.on('cursor:move', ({ pageId, x, y }) => {
         if (!currentSessionId || !currentUser) return;
         currentUser.cursor = { x, y };
@@ -217,7 +220,7 @@ io.on('connection', (socket) => {
             socketId: socket.id,
             username: currentUser.username,
             cursorColor: currentUser.cursorColor,
-            pageId, // <-- przekazujemy dalej
+            pageId,
             x,
             y,
         });

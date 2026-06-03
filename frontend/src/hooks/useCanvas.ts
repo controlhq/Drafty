@@ -6,11 +6,13 @@ export type Tool = 'pen' | 'eraser';
 export const A4_WIDTH = 794;
 export const A4_HEIGHT = 1123;
 const CUSTOM_ID_KEY = 'customId';
+const AUTHOR_ID_KEY = 'authorId';
 
 export interface PageInfo {
   id: string;
   name: string;
-  objects: Record<string, any>;
+  // objects: { [objectId]: { fabricJSON, authorId } }
+  objects: Record<string, { fabricJSON: any; authorId: string }>;
 }
 
 export function useCanvas(options: any = {}) {
@@ -22,12 +24,17 @@ export function useCanvas(options: any = {}) {
   const pagesRef = useRef<PageInfo[]>([{ id: uuidv4(), name: 'Strona 1', objects: {} }]);
 
   // --- HISTORIA COFANIA ---
-  // Stos ID własnych obiektów per strona. Cofnięcie usuwa ostatni obiekt u wszystkich.
   const myObjectsHistory = useRef<Map<string, string[]>>(new Map());
+
+  // --- WIDOCZNOŚĆ UŻYTKOWNIKÓW (lokalnie) ---
+  // socketId -> boolean (true = widoczny, domyślnie true)
+  const hiddenAuthors = useRef<Set<string>>(new Set());
 
   const [pages, setPagesState] = useState<PageInfo[]>(pagesRef.current);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [currentColor, setCurrentColorState] = useState('#000000');
+  // Stan widoczności eksponowany na zewnątrz (do re-renderu UI)
+  const [hiddenAuthorsState, setHiddenAuthorsState] = useState<Set<string>>(new Set());
 
   const optionsRef = useRef(options);
   optionsRef.current = options;
@@ -37,7 +44,6 @@ export function useCanvas(options: any = {}) {
     currentPageIndexRef.current = currentPageIndex;
   }, [currentPageIndex]);
 
-  // --- HELPER: stos historii dla danej strony ---
   const getMyHistory = (pageId: string): string[] => {
     if (!myObjectsHistory.current.has(pageId)) {
       myObjectsHistory.current.set(pageId, []);
@@ -47,34 +53,52 @@ export function useCanvas(options: any = {}) {
 
   // --- LOGIKA WEWNĘTRZNA ---
 
-  const getCanvasData = useCallback(() => {
+  /**
+   * Pobiera dane canvasu (tylko obiekty widoczne + niewidoczne — cały magazyn).
+   * Używane do zapisu stanu strony przed przełączeniem.
+   */
+  const getCanvasData = useCallback((): Record<string, { fabricJSON: any; authorId: string }> => {
     if (!canvas.current) return {};
-    const data: Record<string, any> = {};
+    const data: Record<string, { fabricJSON: any; authorId: string }> = {};
     canvas.current.getObjects().forEach((obj: any) => {
       if (obj.customId) {
-        data[obj.customId] = obj.toJSON([CUSTOM_ID_KEY]);
+        data[obj.customId] = {
+          fabricJSON: obj.toJSON([CUSTOM_ID_KEY, AUTHOR_ID_KEY]),
+          authorId: obj.authorId || '',
+        };
       }
     });
     return data;
   }, []);
 
-  const loadDataToCanvas = useCallback((data: Record<string, any>) => {
+  /**
+   * Ładuje dane strony na canvas, respektując aktualnie ukrytych autorów.
+   */
+  const loadDataToCanvas = useCallback((data: Record<string, { fabricJSON: any; authorId: string }>) => {
     if (!canvas.current) return;
     const c = canvas.current;
 
     isApplyingRemote.current = true;
     c.clear();
     c.setBackgroundColor('#ffffff', () => {
-      const objects = Object.values(data);
-      if (objects.length === 0) {
+      const entries = Object.entries(data);
+      // Obiekty z pustym authorId (np. własne lub ze starszego formatu) nigdy nie są ukrywane
+      const visibleEntries = entries.filter(([, v]) => !v.authorId || !hiddenAuthors.current.has(v.authorId));
+
+      if (visibleEntries.length === 0) {
         c.renderAll();
         isApplyingRemote.current = false;
         return;
       }
 
-      (fabric.util.enlivenObjects as any)(objects, (enlivened: fabric.Object[]) => {
+      const fabricObjects = visibleEntries.map(([, v]) => v.fabricJSON);
+      const ids = visibleEntries.map(([id]) => id);
+      const authors = visibleEntries.map(([, v]) => v.authorId);
+
+      (fabric.util.enlivenObjects as any)(fabricObjects, (enlivened: fabric.Object[]) => {
         enlivened.forEach((obj, i) => {
-          (obj as any).customId = Object.keys(data)[i];
+          (obj as any).customId = ids[i];
+          (obj as any).authorId = authors[i];
           obj.selectable = false;
           obj.evented = false;
           c.add(obj);
@@ -103,25 +127,30 @@ export function useCanvas(options: any = {}) {
     c.on('path:created', (e: any) => {
       if (isApplyingRemote.current) return;
       const id = uuidv4();
+      const myAuthorId = optionsRef.current.mySocketId?.() || 'local';
       e.path.customId = id;
+      e.path.authorId = myAuthorId;
       e.path.selectable = false;
 
       const activePageId = pagesRef.current[currentPageIndexRef.current].id;
-
-      // Zapamiętaj ID własnego obiektu do późniejszego cofnięcia
       getMyHistory(activePageId).push(id);
 
-      optionsRef.current.onObjectAdded?.(activePageId, id, e.path.toJSON([CUSTOM_ID_KEY]));
+      // Zapisz od razu do magazynu strony z authorId
+      const activePage = pagesRef.current[currentPageIndexRef.current];
+      activePage.objects[id] = {
+        fabricJSON: e.path.toJSON([CUSTOM_ID_KEY, AUTHOR_ID_KEY]),
+        authorId: myAuthorId,
+      };
+
+      optionsRef.current.onObjectAdded?.(activePageId, id, e.path.toJSON([CUSTOM_ID_KEY, AUTHOR_ID_KEY]));
     });
 
-    // Emisja kursora
     c.on('mouse:move', (e: any) => {
       const pointer = c.getPointer(e.e);
       const activePageId = pagesRef.current[currentPageIndexRef.current].id;
       optionsRef.current.onCursorMove?.(activePageId, pointer.x, pointer.y);
     });
 
-    // Ctrl+Z / Cmd+Z
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
@@ -139,9 +168,7 @@ export function useCanvas(options: any = {}) {
     };
   }, []);
 
-  // --- COFANIE (UNDO) — collaborative ---
-  // Usuwa ostatni własny obiekt lokalnie ORAZ emituje canvas:object-removed do serwera,
-  // dzięki czemu znika u wszystkich połączonych użytkowników.
+  // --- COFANIE (UNDO) ---
 
   const undoRef = useRef<(() => void) | null>(null);
 
@@ -152,7 +179,6 @@ export function useCanvas(options: any = {}) {
 
     const lastId = history.pop()!;
 
-    // Usuń lokalnie z canvasu
     if (canvas.current) {
       const obj = canvas.current.getObjects().find((o: any) => o.customId === lastId);
       if (obj) {
@@ -161,11 +187,9 @@ export function useCanvas(options: any = {}) {
       }
     }
 
-    // Usuń z lokalnego magazynu danych strony
     const page = pagesRef.current.find(p => p.id === activePageId);
     if (page) delete page.objects[lastId];
 
-    // Poinformuj serwer → serwer rozgłosi do pozostałych użytkowników
     optionsRef.current.onObjectRemoved?.(activePageId, lastId);
   }, []);
 
@@ -173,17 +197,59 @@ export function useCanvas(options: any = {}) {
     undoRef.current = undo;
   }, [undo]);
 
+  // --- WIDOCZNOŚĆ UŻYTKOWNIKA ---
+
+  /**
+   * Przełącza widoczność obiektów danego autora na aktywnej stronie.
+   * hidden = true  → obiekt ukryty (opacity 0, nie renderowany)
+   * hidden = false → przywrócony
+   */
+  const setUserVisibility = useCallback((authorId: string, visible: boolean) => {
+    if (visible) {
+      hiddenAuthors.current.delete(authorId);
+    } else {
+      hiddenAuthors.current.add(authorId);
+    }
+    setHiddenAuthorsState(new Set(hiddenAuthors.current));
+
+    if (!canvas.current) return;
+
+    // Przeładuj canvas z magazynu — NIE przez toJSON (gubi authorId),
+    // magazyn pagesRef już ma poprawne authorId dla każdego obiektu.
+    const activePageIdx = currentPageIndexRef.current;
+    loadDataToCanvas(pagesRef.current[activePageIdx].objects);
+  }, [loadDataToCanvas]);
+
   // --- ZARZĄDZANIE STRONAMI ---
 
   const switchToPage = useCallback((newIndex: number) => {
     if (!canvas.current || newIndex === currentPageIndex) return;
-    pagesRef.current[currentPageIndex].objects = getCanvasData();
+    // Zapisz aktualny stan canvasu DO magazynu (tylko widoczne obiekty nie wystarczą — musimy mieć też ukryte)
+    // Obiekty na canvasie = widoczne. Niewidoczne zostały już zapisane przy poprzednim załadowaniu.
+    // Aktualizujemy tylko te które są na canvasie (visible lub nie).
+    canvas.current.getObjects().forEach((obj: any) => {
+      if (obj.customId) {
+        pagesRef.current[currentPageIndex].objects[obj.customId] = {
+          fabricJSON: obj.toJSON([CUSTOM_ID_KEY, AUTHOR_ID_KEY]),
+          authorId: obj.authorId || '',
+        };
+      }
+    });
+
     setCurrentPageIndex(newIndex);
     loadDataToCanvas(pagesRef.current[newIndex].objects || {});
-  }, [currentPageIndex, getCanvasData, loadDataToCanvas]);
+  }, [currentPageIndex, loadDataToCanvas]);
 
   const addPage = useCallback(() => {
-    pagesRef.current[currentPageIndex].objects = getCanvasData();
+    // Zapisz bieżącą stronę
+    canvas.current?.getObjects().forEach((obj: any) => {
+      if (obj.customId) {
+        pagesRef.current[currentPageIndex].objects[obj.customId] = {
+          fabricJSON: obj.toJSON([CUSTOM_ID_KEY, AUTHOR_ID_KEY]),
+          authorId: obj.authorId || '',
+        };
+      }
+    });
 
     const newPage: PageInfo = {
       id: uuidv4(),
@@ -196,7 +262,7 @@ export function useCanvas(options: any = {}) {
     switchToPage(pagesRef.current.length - 1);
 
     optionsRef.current.onPageAdded?.({ id: newPage.id, name: newPage.name });
-  }, [currentPageIndex, getCanvasData, switchToPage]);
+  }, [currentPageIndex, switchToPage]);
 
   const deletePage = useCallback((index: number) => {
     if (pagesRef.current.length <= 1) return;
@@ -258,15 +324,21 @@ export function useCanvas(options: any = {}) {
 
   // --- OBSŁUGA ZDARZEŃ ZDALNYCH (rysowanie) ---
 
-  const applyRemoteObject = useCallback((pageId: string, objectId: string, fabricJSON: any) => {
+  const applyRemoteObject = useCallback((pageId: string, objectId: string, fabricJSON: any, authorId: string) => {
     const page = pagesRef.current.find(p => p.id === pageId);
-    if (page) page.objects[objectId] = fabricJSON;
+    if (page) {
+      page.objects[objectId] = { fabricJSON, authorId };
+    }
 
     if (pageId === pagesRef.current[currentPageIndexRef.current].id && canvas.current) {
+      // Jeśli autor jest ukryty, nie renderuj na canvasie
+      if (hiddenAuthors.current.has(authorId)) return;
+
       isApplyingRemote.current = true;
       (fabric.util.enlivenObjects as any)([fabricJSON], (enlivened: fabric.Object[]) => {
         const obj = enlivened[0];
         (obj as any).customId = objectId;
+        (obj as any).authorId = authorId;
         obj.selectable = false;
         obj.evented = false;
         canvas.current?.add(obj);
@@ -300,11 +372,20 @@ export function useCanvas(options: any = {}) {
     }
   }, []);
 
-  // --- EKSPORT DO PDF ---
+  // --- EKSPORT DO PDF (respektuje ukrytych autorów) ---
 
   const exportToPDF = useCallback(async () => {
     const { jsPDF } = await import('jspdf');
-    pagesRef.current[currentPageIndexRef.current].objects = getCanvasData();
+
+    // Zapisz aktualny stan bieżącej strony
+    canvas.current?.getObjects().forEach((obj: any) => {
+      if (obj.customId) {
+        pagesRef.current[currentPageIndexRef.current].objects[obj.customId] = {
+          fabricJSON: obj.toJSON([CUSTOM_ID_KEY, AUTHOR_ID_KEY]),
+          authorId: obj.authorId || '',
+        };
+      }
+    });
 
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const PDF_W = 210;
@@ -325,9 +406,12 @@ export function useCanvas(options: any = {}) {
           height: A4_HEIGHT,
         });
 
-        const objects = Object.values(page.objects);
+        // Filtruj ukrytych autorów dla eksportu
+        const visibleEntries = Object.entries(page.objects).filter(
+          ([, v]) => !v.authorId || !hiddenAuthors.current.has(v.authorId)
+        );
 
-        if (objects.length === 0) {
+        if (visibleEntries.length === 0) {
           const dataUrl = tmpFabric.toDataURL({ format: 'jpeg', quality: 0.95 });
           pdf.addImage(dataUrl, 'JPEG', 0, 0, PDF_W, PDF_H);
           tmpFabric.dispose();
@@ -335,9 +419,12 @@ export function useCanvas(options: any = {}) {
           return;
         }
 
-        (fabric.util.enlivenObjects as any)(objects, (enlivened: fabric.Object[]) => {
+        const fabricObjects = visibleEntries.map(([, v]) => v.fabricJSON);
+        const ids = visibleEntries.map(([id]) => id);
+
+        (fabric.util.enlivenObjects as any)(fabricObjects, (enlivened: fabric.Object[]) => {
           enlivened.forEach((obj, idx) => {
-            (obj as any).customId = Object.keys(page.objects)[idx];
+            (obj as any).customId = ids[idx];
             tmpFabric.add(obj);
           });
           tmpFabric.renderAll();
@@ -350,7 +437,7 @@ export function useCanvas(options: any = {}) {
     }
 
     pdf.save('drafty-eksport.pdf');
-  }, [getCanvasData]);
+  }, []);
 
   // --- EKSPORT METOD ---
 
@@ -359,6 +446,8 @@ export function useCanvas(options: any = {}) {
     pages,
     currentPageIndex,
     currentColor,
+    hiddenAuthors: hiddenAuthorsState,
+    setUserVisibility,
     setTool: (t: Tool) => {
       if (canvas.current) {
         canvas.current.isDrawingMode = true;
@@ -374,6 +463,9 @@ export function useCanvas(options: any = {}) {
     },
     clearCanvas: () => {
       const activePageId = pagesRef.current[currentPageIndexRef.current].id;
+      // Wyczyść magazyn strony — bez tego toggle widoczności przywracałby "duchy"
+      const activePage = pagesRef.current[currentPageIndexRef.current];
+      if (activePage) activePage.objects = {};
       myObjectsHistory.current.set(activePageId, []);
       canvas.current?.clear();
       canvas.current?.setBackgroundColor('#ffffff', () => canvas.current?.renderAll());
@@ -395,17 +487,33 @@ export function useCanvas(options: any = {}) {
       let newPages: PageInfo[];
 
       if (serverPages && serverPages.length > 0) {
-        newPages = serverPages.map(p => ({
-          id: p.id,
-          name: p.name,
-          objects: allState[p.id] || {},
-        }));
+        newPages = serverPages.map(p => {
+          const pageObjects = allState[p.id] || {};
+          // Normalizuj format — serwer może przysłać stary format (bez authorId)
+          const normalized: Record<string, { fabricJSON: any; authorId: string }> = {};
+          for (const [objId, val] of Object.entries(pageObjects)) {
+            if (val && typeof val === 'object' && 'fabricJSON' in (val as any)) {
+              normalized[objId] = val as { fabricJSON: any; authorId: string };
+            } else {
+              // Stary format: fabricJSON bezpośrednio
+              normalized[objId] = { fabricJSON: val, authorId: '' };
+            }
+          }
+          return { id: p.id, name: p.name, objects: normalized };
+        });
       } else {
-        newPages = Object.keys(allState).map((pid, idx) => ({
-          id: pid,
-          name: `Strona ${idx + 1}`,
-          objects: allState[pid],
-        }));
+        newPages = Object.keys(allState).map((pid, idx) => {
+          const pageObjects = allState[pid];
+          const normalized: Record<string, { fabricJSON: any; authorId: string }> = {};
+          for (const [objId, val] of Object.entries(pageObjects)) {
+            if (val && typeof val === 'object' && 'fabricJSON' in (val as any)) {
+              normalized[objId] = val as { fabricJSON: any; authorId: string };
+            } else {
+              normalized[objId] = { fabricJSON: val, authorId: '' };
+            }
+          }
+          return { id: pid, name: `Strona ${idx + 1}`, objects: normalized };
+        });
       }
 
       if (newPages.length > 0) {

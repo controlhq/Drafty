@@ -25,7 +25,10 @@ export function Board() {
   const [e2eLatency, setE2ELatency] = useState<number | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
-  const applyRemoteRef = useRef<((pageId: string, id: string, obj: object) => void) | null>(null);
+  // Własne socketId — potrzebne do tagowania własnych obiektów w useCanvas
+  const mySocketIdRef = useRef<string>('');
+
+  const applyRemoteRef = useRef<((pageId: string, id: string, obj: object, authorId: string) => void) | null>(null);
   const removeRemoteRef = useRef<((pageId: string, id: string) => void) | null>(null);
   const canvasHookRef = useRef<ReturnType<typeof useCanvas> | null>(null);
 
@@ -42,12 +45,12 @@ export function Board() {
     canvasHookRef.current?.loadCanvasState(canvasObjects as Record<string, Record<string, object>>, pages);
   }, []);
 
-  const handleObjectAdded = useCallback((pageId: string, objectId: string, fabricObject: object) => {
-    applyRemoteRef.current?.(pageId, objectId, fabricObject);
+  const handleObjectAdded = useCallback((pageId: string, objectId: string, fabricObject: object, authorId: string) => {
+    applyRemoteRef.current?.(pageId, objectId, fabricObject, authorId);
   }, []);
 
-  const handleObjectModified = useCallback((pageId: string, objectId: string, fabricObject: object) => {
-    applyRemoteRef.current?.(pageId, objectId, fabricObject);
+  const handleObjectModified = useCallback((pageId: string, objectId: string, fabricObject: object, authorId: string) => {
+    applyRemoteRef.current?.(pageId, objectId, fabricObject, authorId);
   }, []);
 
   const handleObjectRemoved = useCallback((pageId: string, objectId: string) => {
@@ -99,6 +102,7 @@ export function Board() {
     emitPageAdded,
     emitPageDeleted,
     emitPageRenamed,
+    getSocketId,
   } = useSocket({
     sessionId: sessionId!,
     username,
@@ -117,14 +121,23 @@ export function Board() {
     onPageAdded: handlePageAdded,
     onPageDeleted: handlePageDeleted,
     onPageRenamed: handlePageRenamed,
+    // Zapisz własne socketId zaraz po połączeniu
+    onSocketIdReady: (id) => {
+      mySocketIdRef.current = id;
+    },
   });
 
   const canvasHook = useCanvas({
-    onObjectAdded: (pageId: string, objectId: string, fabricObject: object) => emitObjectAdded(pageId, objectId, fabricObject),
-    onObjectModified: (pageId: string, objectId: string, fabricObject: object) => emitObjectModified(pageId, objectId, fabricObject),
-    // Undo emituje object-removed — serwer rozgłosi do wszystkich
-    onObjectRemoved: (pageId: string, objectId: string) => emitObjectRemoved(pageId, objectId),
-    onCursorMove: (pageId: string, x: number, y: number) => emitCursorMove(pageId, x, y),
+    // Własne socketId przekazywane do canvas hooka przez callback
+    mySocketId: () => mySocketIdRef.current || getSocketId() || 'local',
+    onObjectAdded: (pageId: string, objectId: string, fabricObject: object) =>
+      emitObjectAdded(pageId, objectId, fabricObject),
+    onObjectModified: (pageId: string, objectId: string, fabricObject: object) =>
+      emitObjectModified(pageId, objectId, fabricObject),
+    onObjectRemoved: (pageId: string, objectId: string) =>
+      emitObjectRemoved(pageId, objectId),
+    onCursorMove: (pageId: string, x: number, y: number) =>
+      emitCursorMove(pageId, x, y),
     onPageAdded: (page: PageInfo) => emitPageAdded(page),
     onPageDeleted: (pageId: string) => emitPageDeleted(pageId),
     onPageRenamed: (pageId: string, name: string) => emitPageRenamed(pageId, name),
@@ -167,6 +180,20 @@ export function Board() {
       setIsExporting(false);
     }
   };
+
+  // --- TOGGLE WIDOCZNOŚCI UŻYTKOWNIKA ---
+  const handleToggleVisibility = useCallback((socketId: string, makeVisible: boolean) => {
+    console.log('TOGGLE', socketId, makeVisible);
+    canvasHook.setUserVisibility(socketId, makeVisible);
+    const user = users.find(u => u.socketId === socketId);
+    if (user) {
+      showNotification(
+        makeVisible
+          ? `👁️ Pokazano rysunki użytkownika ${user.username}`
+          : `🙈 Ukryto rysunki użytkownika ${user.username}`
+      );
+    }
+  }, [canvasHook.setUserVisibility, users]);
 
   if (!sessionId) {
     navigate('/');
@@ -212,7 +239,15 @@ export function Board() {
         </div>
 
         <CursorOverlay cursors={Object.values(remoteCursors)} currentPageId={canvasHook.getCurrentPageId()} />
-        <UsersPanel users={users} currentUsername={username} />
+
+        {/* UsersPanel z obsługą widoczności */}
+        <UsersPanel
+            users={users}
+            currentUsername={username}
+            hiddenAuthors={canvasHook.hiddenAuthors}
+            onToggleVisibility={handleToggleVisibility}
+        />
+
         <SharePanel sessionId={sessionId} />
 
         {notification && (
