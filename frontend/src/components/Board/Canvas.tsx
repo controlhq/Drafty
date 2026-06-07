@@ -15,10 +15,11 @@ export const Canvas = React.memo(({ canvasRef }: CanvasProps) => {
         height: `calc(100vh - ${TOOLBAR_HEIGHT}px)`,
         marginTop: `${TOOLBAR_HEIGHT}px`,
         display: 'flex',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'center',
         backgroundColor: '#f5f5f5',
         overflow: 'auto',
+        padding: '20px',
       }}
     >
       <div
