@@ -412,8 +412,8 @@ export function useCanvas(options: any = {}) {
         );
 
         if (visibleEntries.length === 0) {
-          const dataUrl = tmpFabric.toDataURL({ format: 'png', multiplier: 3 });
-          pdf.addImage(dataUrl, 'PNG', 0, 0, PDF_W, PDF_H);
+          const dataUrl = tmpFabric.toDataURL({ format: 'jpeg', quality: 0.95, multiplier: 2 });
+          pdf.addImage(dataUrl, 'JPEG', 0, 0, PDF_W, PDF_H);
           tmpFabric.dispose();
           resolve();
           return;
@@ -428,8 +428,8 @@ export function useCanvas(options: any = {}) {
             tmpFabric.add(obj);
           });
           tmpFabric.renderAll();
-          const dataUrl = tmpFabric.toDataURL({ format: 'png', multiplier: 3 });
-          pdf.addImage(dataUrl, 'PNG', 0, 0, PDF_W, PDF_H);
+          const dataUrl = tmpFabric.toDataURL({ format: 'jpeg', quality: 0.95, multiplier: 2 });
+          pdf.addImage(dataUrl, 'JPEG', 0, 0, PDF_W, PDF_H);
           tmpFabric.dispose();
           resolve();
         }, 'fabric');
