@@ -226,12 +226,12 @@ export function Board() {
         />
 
         <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          height: '100%',
-          paddingTop: '60px',
-          overflow: 'auto',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100%',
+        paddingTop: '60px',
+        overflow: 'auto',
         }}>
           <div style={{ boxShadow: '0 10px 30px rgba(0,0,0,0.1)', background: 'white' }}>
             <Canvas canvasRef={canvasHook.canvasRef} />
