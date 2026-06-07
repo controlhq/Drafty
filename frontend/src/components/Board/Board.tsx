@@ -225,18 +225,9 @@ export function Board() {
             onRenamePage={canvasHook.renamePage}
         />
 
-        <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100%',
-        paddingTop: '60px',
-        overflow: 'auto',
-        }}>
-          <div style={{ boxShadow: '0 10px 30px rgba(0,0,0,0.1)', background: 'white' }}>
-            <Canvas canvasRef={canvasHook.canvasRef} />
-          </div>
-        </div>
+     
+        <Canvas canvasRef={canvasHook.canvasRef} />
+        
 
         <CursorOverlay cursors={Object.values(remoteCursors)} currentPageId={canvasHook.getCurrentPageId()} />
 
