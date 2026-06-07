@@ -56,7 +56,7 @@ export function useCanvas(options: any = {}) {
   /**
    * Pobiera dane canvasu (tylko obiekty widoczne + niewidoczne — cały magazyn).
    * Używane do zapisu stanu strony przed przełączeniem.
-   */
+  
   const getCanvasData = useCallback((): Record<string, { fabricJSON: any; authorId: string }> => {
     if (!canvas.current) return {};
     const data: Record<string, { fabricJSON: any; authorId: string }> = {};
@@ -70,7 +70,7 @@ export function useCanvas(options: any = {}) {
     });
     return data;
   }, []);
-
+  */
   /**
    * Ładuje dane strony na canvas, respektując aktualnie ukrytych autorów.
    */
