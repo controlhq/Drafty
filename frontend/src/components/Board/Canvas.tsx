@@ -6,17 +6,19 @@ interface CanvasProps {
 }
 
 export const Canvas = React.memo(({ canvasRef }: CanvasProps) => {
+  const TOOLBAR_HEIGHT = 55;
+
   return (
     <div
       style={{
         width: '100vw',
-        height: '100vh',
+        height: `calc(100vh - ${TOOLBAR_HEIGHT}px)`,
+        marginTop: `${TOOLBAR_HEIGHT}px`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#f5f5f5',
         overflow: 'auto',
-        padding: '80px 20px 20px 20px',
       }}
     >
       <div
@@ -25,8 +27,9 @@ export const Canvas = React.memo(({ canvasRef }: CanvasProps) => {
           border: '1px solid #d1d5db',
           backgroundColor: '#ffffff',
           lineHeight: 0,
-          width: `min(90vw, ${A4_WIDTH}px)`,
+          width: `min(95vw, ${A4_WIDTH}px)`,
           aspectRatio: `${A4_WIDTH} / ${A4_HEIGHT}`,
+          flexShrink: 0,
         }}
       >
         <canvas
