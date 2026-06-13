@@ -25,7 +25,7 @@
 
 Projekt powstał w ramach kursu inżynierii oprogramowania (semestr 6).
 
-**Zespół:** Szymon · Dominik Gąsiorek · Arkadiusz Domżał
+**Zespół:** Szymon Basta · Dominik Gąsiorek · Arkadiusz Domżał
 
 ---
 
