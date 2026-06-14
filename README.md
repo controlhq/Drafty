@@ -1,4 +1,4 @@
-# ✏️ Drafty
+w# ✏️ Drafty
 
 > Współdzielona tablica rysunkowa w czasie rzeczywistym — rysuj razem z innymi, gdziekolwiek jesteś.
 
@@ -25,7 +25,7 @@
 
 Projekt powstał w ramach kursu inżynierii oprogramowania (semestr 6).
 
-**Zespół:** Szymon Basta · Dominik Gąsiorek · Arkadiusz Domżał
+**Zespół:** Szymon Basta · Dominik Gąsiorek · Arkadiusz Domżał · Adrian Bober
 
 ---
 
